@@ -459,6 +459,14 @@ int main(int argc, char* argv[]) {
                 // also perform a click selection
                 int mx = event.button.x;
                 int my = event.button.y;
+                /* if a path is currently displayed, clear it on any click */
+                if (path_len > 0) {
+                    int total = g_map_rows * g_map_cols;
+                    if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+                    path_len = 0;
+                    if (in_path) memset(in_path, 0, total);
+                    create_text_texture(renderer, "Path cleared");
+                }
                 int found = 0;
                 for (int row = 0; row < g_map_rows && !found; row++) {
                     for (int col = 0; col < g_map_cols; col++) {

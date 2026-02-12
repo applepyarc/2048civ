@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
+#include <string.h>
 
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 700
@@ -45,6 +46,18 @@ Terrain* g_terrain_map = NULL; /* flattened [row*cols + col] */
 // 当前选中的单元格
 int selected_row = -1;
 int selected_col = -1;
+// Pathfinding
+int path_start_row = -1, path_start_col = -1;
+int path_end_row = -1, path_end_col = -1;
+int *prev_node = NULL; /* flattened prev index */
+unsigned char *in_path = NULL; /* flattened bool */
+int *path_nodes = NULL; /* ordered indices from start->end */
+int path_len = 0;
+// neighbor highlight toggle and hover tracking
+int highlight_neighbors_enabled = 1; /* default enabled */
+int hover_row = -1, hover_col = -1;
+// show cell coordinates toggle
+int show_cell_coords_enabled = 1; /* default enabled */
 // TTF font and info texture
 TTF_Font* g_font = NULL;
 SDL_Texture* g_info_tex = NULL;
@@ -62,6 +75,156 @@ int cam_start_y = 0;
 int map_min_x = 0, map_max_x = 0, map_min_y = 0, map_max_y = 0;
 
 void compute_hex_points(int cx, int cy, int radius, SDL_Point* pts);
+
+static inline int idx_of(int r, int c) { return r * g_map_cols + c; }
+
+// neighbor offsets for odd-q vertical layout (cols offset)
+int get_neighbors(int r, int c, int *out_r, int *out_c) {
+    const int even_d[6][2] = {{-1,-1},{-1,0},{-1,1},{0,1},{1,0},{0,-1}};
+    const int odd_d[6][2]  = {{0,-1},{-1,0},{0,1},{1,1},{1,0},{1,-1}};
+    int count = 0;
+    const int (*d)[2] = (c % 2 == 0) ? even_d : odd_d;
+    for (int i = 0; i < 6; ++i) {
+        int nr = r + d[i][0];
+        int nc = c + d[i][1];
+        if (nr >= 0 && nr < g_map_rows && nc >= 0 && nc < g_map_cols) {
+            out_r[count] = nr; out_c[count] = nc; count++;
+        }
+    }
+    return count;
+}
+
+// cost per terrain (integer)
+int terrain_cost(Terrain t) {
+    switch (t) {
+        case TERRAIN_PLAINS: return 10;
+        case TERRAIN_HILLS: return 30;
+        case TERRAIN_FOREST: return 50;
+        case TERRAIN_DESERT: return 20;
+        case TERRAIN_WATER: return 100; /* swimmable but expensive */
+        case TERRAIN_MOUNTAIN: return 10000; /* effectively impassable */
+        default: return 10;
+    }
+}
+
+// Minimal binary heap for A* (stores index, g-cost and f=g+h)
+typedef struct { int idx; int g; int f; } HeapNode;
+typedef struct { HeapNode *a; int size, cap; } MinHeap;
+
+void heap_init(MinHeap *h, int cap) { h->a = malloc(sizeof(HeapNode)*cap); h->size = 0; h->cap = cap; }
+void heap_free(MinHeap *h) { free(h->a); h->a = NULL; h->size = h->cap = 0; }
+void heap_swap(HeapNode *x, HeapNode *y) { HeapNode t = *x; *x = *y; *y = t; }
+void heap_push(MinHeap *h, HeapNode v) {
+    if (h->size >= h->cap) {
+        int nc = h->cap*2 + 16;
+        h->a = realloc(h->a, sizeof(HeapNode)*nc);
+        h->cap = nc;
+    }
+    int i = h->size++;
+    h->a[i] = v;
+    while (i > 0) {
+        int p = (i-1)/2;
+        if (h->a[p].f <= h->a[i].f) break;
+        heap_swap(&h->a[p], &h->a[i]); i = p;
+    }
+}
+HeapNode heap_pop(MinHeap *h) {
+    HeapNode ret = h->a[0];
+    h->a[0] = h->a[--h->size];
+    int i = 0;
+    while (1) {
+        int l = i*2+1, r = i*2+2, smallest = i;
+        if (l < h->size && h->a[l].f < h->a[smallest].f) smallest = l;
+        if (r < h->size && h->a[r].f < h->a[smallest].f) smallest = r;
+        if (smallest == i) break;
+        heap_swap(&h->a[i], &h->a[smallest]); i = smallest;
+    }
+    return ret;
+}
+
+// Convert odd-q coordinates to cube coords for distance heuristic
+static inline void oddq_to_cube(int col, int row, int *x, int *y, int *z) {
+    int q = col;
+    int r = row - (col - (col & 1)) / 2;
+    *x = q;
+    *z = r;
+    *y = -(*x) - (*z);
+}
+
+// Hex distance (cube coords)
+static inline int hex_distance_cells(int r1, int c1, int r2, int c2) {
+    int x1,y1,z1,x2,y2,z2;
+    oddq_to_cube(c1, r1, &x1, &y1, &z1);
+    oddq_to_cube(c2, r2, &x2, &y2, &z2);
+    int dx = abs(x1 - x2), dy = abs(y1 - y2), dz = abs(z1 - z2);
+    return (dx + dy + dz) / 2;
+}
+
+// Compute shortest path using A* from (sr,sc) to (tr,tc)
+void compute_path(int sr, int sc, int tr, int tc) {
+    int n = g_map_rows * g_map_cols;
+    if (!prev_node) prev_node = malloc(sizeof(int)*n);
+    if (!in_path) in_path = calloc(n,1);
+    int INF = 0x3f3f3f3f;
+    int *gscore = malloc(sizeof(int)*n);
+    for (int i = 0; i < n; ++i) { gscore[i] = INF; prev_node[i] = -1; in_path[i] = 0; }
+
+    MinHeap open; heap_init(&open, 256);
+    int sidx = idx_of(sr,sc), tidx = idx_of(tr,tc);
+
+    // heuristic multiplier: use minimum terrain cost as optimistic factor
+    const int min_cost = 10;
+    int h0 = hex_distance_cells(sr, sc, tr, tc) * min_cost;
+    gscore[sidx] = 0;
+    heap_push(&open, (HeapNode){sidx, 0, 0 + h0});
+
+    int *nbr_r = malloc(sizeof(int)*6);
+    int *nbr_c = malloc(sizeof(int)*6);
+
+    while (open.size > 0) {
+        HeapNode hn = heap_pop(&open);
+        int u = hn.idx;
+        int ug = hn.g;
+        if (ug != gscore[u]) continue; // stale entry
+        if (u == tidx) break;
+        int ur = u / g_map_cols, uc = u % g_map_cols;
+        int nc = get_neighbors(ur, uc, nbr_r, nbr_c);
+        for (int i = 0; i < nc; ++i) {
+            int vr = nbr_r[i], vc = nbr_c[i];
+            int v = idx_of(vr,vc);
+            int w = terrain_cost(TERRAIN_AT(vr,vc));
+            if (w >= 10000) continue; // impassable
+            int tentative_g = gscore[u] + w;
+            if (tentative_g < gscore[v]) {
+                prev_node[v] = u;
+                gscore[v] = tentative_g;
+                int h = hex_distance_cells(vr, vc, tr, tc) * min_cost;
+                int f = tentative_g + h;
+                heap_push(&open, (HeapNode){v, tentative_g, f});
+            }
+        }
+    }
+
+    // build path if reachable: record ordered nodes start->end in path_nodes
+    if (gscore[tidx] < INF) {
+        int cur = tidx;
+        int cnt = 0;
+        while (cur != -1) { cnt++; cur = prev_node[cur]; }
+        if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+        path_nodes = malloc(sizeof(int) * cnt);
+        path_len = cnt;
+        cur = tidx;
+        for (int i = cnt - 1; i >= 0; --i) {
+            path_nodes[i] = cur;
+            in_path[cur] = 1;
+            cur = prev_node[cur];
+        }
+    } else {
+        path_len = 0;
+        if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+    }
+    free(gscore); free(nbr_r); free(nbr_c); heap_free(&open);
+}
 
 // Compute map pixel bounds (including hex vertices) in world coords (no cam offset)
 void compute_map_bounds(int radius) {
@@ -208,6 +371,19 @@ int create_text_texture(SDL_Renderer* renderer, const char* text) {
     return 1;
 }
 
+// Create a temporary texture from text and return it (caller must destroy)
+SDL_Texture* create_text_texture_local(SDL_Renderer* renderer, const char* text, int *out_w, int *out_h) {
+    if (!g_font) return NULL;
+    SDL_Color col = {255,255,255,255};
+    SDL_Surface* surf = TTF_RenderUTF8_Blended(g_font, text, col);
+    if (!surf) return NULL;
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    if (tex && out_w) *out_w = surf->w;
+    if (tex && out_h) *out_h = surf->h;
+    SDL_FreeSurface(surf);
+    return tex;
+}
+
 // 绘制并填充六边形
 void draw_hex_terrain(SDL_Renderer* renderer, int cx, int cy, int radius, Terrain t) {
     SDL_Point pts[6];
@@ -290,32 +466,62 @@ int main(int argc, char* argv[]) {
                         hex_center(row, col, current_radius, &cx, &cy);
                         SDL_Point pts[6];
                         compute_hex_points(cx, cy, current_radius-1, pts);
-                        if (point_in_polygon(pts, 6, mx, my)) {
-                            Terrain t = TERRAIN_AT(row,col);
-                            const char* names[] = {"Plains","Hills","Forest","Desert","Water","Mountain"};
-                            char info[256];
-                            if (selected_row == row && selected_col == col) {
-                                /* toggle off */
-                                selected_row = selected_col = -1;
-                                SDL_SetWindowTitle(window, "Hex Terrain Map");
-                                snprintf(info, sizeof(info), "Cell: (%d,%d)  Terrain: %s  Selected: no", row, col, names[t]);
+                        if (!point_in_polygon(pts, 6, mx, my)) continue;
+                        /* path selection logic: first click = start, second click = end (compute path) */
+                        Terrain t = TERRAIN_AT(row,col);
+                        const char* names[] = {"Plains","Hills","Forest","Desert","Water","Mountain"};
+                        char info[256];
+                        if (path_start_row == -1) {
+                            /* set start */
+                            path_start_row = row; path_start_col = col;
+                            /* clear any previous path */
+                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                            snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
+                        } else if (path_start_row == row && path_start_col == col) {
+                            /* clicked start again -> clear start */
+                            path_start_row = path_start_col = -1;
+                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                            snprintf(info, sizeof(info), "Start cleared (%d,%d)", row, col);
+                        } else if (path_end_row == -1) {
+                            /* set end and compute path */
+                            path_end_row = row; path_end_col = col;
+                            snprintf(info, sizeof(info), "End: (%d,%d) Terrain: %s", row, col, names[t]);
+                            compute_path(path_start_row, path_start_col, path_end_row, path_end_col);
+                            /* build path coordinate string for UI (truncate if long) */
+                            if (path_len > 0) {
+                                char pbuf[1024];
+                                int pos = snprintf(pbuf, sizeof(pbuf), "Path len: %d  ", path_len);
+                                for (int pi = 0; pi < path_len; ++pi) {
+                                    int idx = path_nodes[pi];
+                                    int pr = idx / g_map_cols, pc = idx % g_map_cols;
+                                    int n = snprintf(pbuf + pos, sizeof(pbuf) - pos, "(%d,%d)%s", pr, pc, (pi + 1 < path_len) ? "->" : "");
+                                    pos += n;
+                                    if (pos > (int)sizeof(pbuf) - 80) { snprintf(pbuf + pos, sizeof(pbuf) - pos, " ..."); break; }
+                                }
+                                /* append to the end of info */
+                                strncat(info, "  ", sizeof(info) - strlen(info) - 1);
+                                strncat(info, pbuf, sizeof(info) - strlen(info) - 1);
                             } else {
-                                /* select this cell */
-                                selected_row = row;
-                                selected_col = col;
-                                char title[128];
-                                snprintf(title, sizeof(title), "Hex (%d,%d) - %s", row, col, names[t]);
-                                SDL_SetWindowTitle(window, title);
-                                snprintf(info, sizeof(info), "Cell: (%d,%d)  Terrain: %s  Selected: yes", row, col, names[t]);
+                                strncat(info, "  No path found", sizeof(info) - strlen(info) - 1);
                             }
-                            create_text_texture(renderer, info);
-                            found = 1;
-                            break;
+                        } else {
+                            /* both set: start a new start */
+                            path_start_row = row; path_start_col = col;
+                            path_end_row = path_end_col = -1;
+                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                            snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
                         }
+                        create_text_texture(renderer, info);
+                        found = 1;
+                        break;
                     }
                 }
                 if (!found) {
+                    /* click on empty area - clear selection and path start/end */
                     selected_row = selected_col = -1;
+                    path_start_row = path_start_col = -1;
+                    path_end_row = path_end_col = -1;
+                    if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
                     SDL_SetWindowTitle(window, "Hex Terrain Map");
                     if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
                 }
@@ -343,12 +549,40 @@ int main(int argc, char* argv[]) {
                 }
             }
             else if (event.type == SDL_MOUSEMOTION) {
+                int mx = event.motion.x;
+                int my = event.motion.y;
                 if (dragging) {
-                    int mx = event.motion.x;
-                    int my = event.motion.y;
                     cam_x = cam_start_x + (mx - drag_start_x);
                     cam_y = cam_start_y + (my - drag_start_y);
                     clamp_camera();
+                    hover_row = hover_col = -1;
+                } else {
+                    /* update hover cell by hit-testing hex polygons */
+                    int found = 0;
+                    for (int row = 0; row < g_map_rows && !found; row++) {
+                        for (int col = 0; col < g_map_cols; col++) {
+                            int cx, cy; SDL_Point pts[6];
+                            hex_center(row, col, current_radius, &cx, &cy);
+                            compute_hex_points(cx, cy, current_radius-1, pts);
+                            if (point_in_polygon(pts, 6, mx, my)) {
+                                hover_row = row; hover_col = col; found = 1; break;
+                            }
+                        }
+                    }
+                    if (!found) { hover_row = hover_col = -1; }
+                }
+            }
+            else if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_n) {
+                    highlight_neighbors_enabled = !highlight_neighbors_enabled;
+                    char info[128];
+                    snprintf(info, sizeof(info), "Highlight neighbors: %s", highlight_neighbors_enabled ? "ON" : "OFF");
+                    create_text_texture(renderer, info);
+                } else if (event.key.keysym.sym == SDLK_c) {
+                    show_cell_coords_enabled = !show_cell_coords_enabled;
+                    char info[128];
+                    snprintf(info, sizeof(info), "Show cell coords: %s", show_cell_coords_enabled ? "ON" : "OFF");
+                    create_text_texture(renderer, info);
                 }
             }
         }
@@ -361,6 +595,28 @@ int main(int argc, char* argv[]) {
                 int cx, cy;
                 hex_center(row, col, current_radius, &cx, &cy);
                 draw_hex_terrain(renderer, cx, cy, current_radius - 1, TERRAIN_AT(row,col));
+
+                if (show_cell_coords_enabled) {
+                    char coordbuf[32];
+                    snprintf(coordbuf, sizeof(coordbuf), "%d,%d", row, col);
+                    int tw=0, th=0;
+                    SDL_Texture* ttx = create_text_texture_local(renderer, coordbuf, &tw, &th);
+                    if (ttx) {
+                        SDL_SetTextureBlendMode(ttx, SDL_BLENDMODE_BLEND);
+                        SDL_Rect td = { cx - tw/2, cy - th/2, tw, th };
+                        SDL_RenderCopy(renderer, ttx, NULL, &td);
+                        SDL_DestroyTexture(ttx);
+                    }
+                }
+
+                int idx = idx_of(row,col);
+                if (in_path && in_path[idx]) {
+                    SDL_Point pts[6];
+                    compute_hex_points(cx, cy, current_radius - 1, pts);
+                    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                    SDL_SetRenderDrawColor(renderer, 0, 200, 200, 140);
+                    fill_polygon(renderer, pts, 6);
+                }
                 // 如果被选中，高亮边框
                 if (row == selected_row && col == selected_col) {
                     SDL_Point pts[6];
@@ -372,6 +628,51 @@ int main(int argc, char* argv[]) {
                     SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);
                 }
             }
+        }
+
+        // 绘制邻居高亮（如果启用并有悬停单元）
+        if (highlight_neighbors_enabled && hover_row >= 0 && hover_col >= 0) {
+            int nbr_r[6], nbr_c[6];
+            int nc = get_neighbors(hover_row, hover_col, nbr_r, nbr_c);
+            SDL_Point pts[6];
+            for (int i = 0; i < nc; ++i) {
+                int rr = nbr_r[i], cc = nbr_c[i];
+                int cx, cy; hex_center(rr, cc, current_radius, &cx, &cy);
+                compute_hex_points(cx, cy, current_radius - 1, pts);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, 255, 220, 0, 120);
+                fill_polygon(renderer, pts, 6);
+                SDL_SetRenderDrawColor(renderer, 255, 220, 0, 200);
+                SDL_RenderDrawLines(renderer, pts, 6);
+                SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);
+            }
+            /* highlight hovered cell differently */
+            int hcx, hcy; hex_center(hover_row, hover_col, current_radius, &hcx, &hcy);
+            compute_hex_points(hcx, hcy, current_radius - 1, pts);
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 160);
+            SDL_RenderDrawLines(renderer, pts, 6);
+            SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);
+        }
+
+        // 绘制路径线段（如果存在）
+        if (path_len >= 2 && path_nodes) {
+            SDL_Point *pline = malloc(sizeof(SDL_Point) * path_len);
+            for (int i = 0; i < path_len; ++i) {
+                int idx = path_nodes[i];
+                int pr = idx / g_map_cols, pc = idx % g_map_cols;
+                hex_center(pr, pc, current_radius, &pline[i].x, &pline[i].y);
+            }
+            SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(renderer, 255, 80, 80, 220);
+            SDL_RenderDrawLines(renderer, pline, path_len);
+            // draw endpoints
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_Rect rs = { pline[0].x - 4, pline[0].y - 4, 8, 8 };
+            SDL_Rect re = { pline[path_len-1].x - 4, pline[path_len-1].y - 4, 8, 8 };
+            SDL_RenderFillRect(renderer, &rs);
+            SDL_RenderFillRect(renderer, &re);
+            free(pline);
         }
 
         // 绘制信息纹理（左上角）
@@ -391,6 +692,11 @@ int main(int argc, char* argv[]) {
     SDL_DestroyRenderer(renderer);
     if (g_info_tex) SDL_DestroyTexture(g_info_tex);
     if (g_font) TTF_CloseFont(g_font);
+    if (prev_node) { free(prev_node); prev_node = NULL; }
+    if (in_path) { free(in_path); in_path = NULL; }
+    if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+    if (g_terrain_map) { free(g_terrain_map); g_terrain_map = NULL; }
+    config_free();
     TTF_Quit();
     SDL_DestroyWindow(window);
     SDL_Quit();

@@ -15,9 +15,11 @@
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 700
 
-#define HEX_RADIUS 40 // 六边形半径
-#define MAP_ROWS 8
-#define MAP_COLS 10
+#define HEX_RADIUS 40 // 默认六边形半径
+int current_radius = HEX_RADIUS;
+const int MIN_RADIUS = 8;
+const int MAX_RADIUS = 120;
+/* MAP size is provided by config at runtime */
 
 // 地形枚举
 typedef enum {
@@ -30,8 +32,15 @@ typedef enum {
     TERRAIN_COUNT
 } Terrain;
 
-// 简单地形地图（可替换为随机或加载）
-Terrain terrain_map[MAP_ROWS][MAP_COLS];
+// 简单地形地图（已改为运行时分配）
+
+/* Include runtime config and runtime-sized terrain buffer */
+#include "config.h"
+
+int g_map_rows = 0;
+int g_map_cols = 0;
+Terrain* g_terrain_map = NULL; /* flattened [row*cols + col] */
+#define TERRAIN_AT(r,c) (g_terrain_map[(r)*g_map_cols + (c)])
 
 // 当前选中的单元格
 int selected_row = -1;
@@ -57,8 +66,8 @@ void compute_hex_points(int cx, int cy, int radius, SDL_Point* pts);
 // Compute map pixel bounds (including hex vertices) in world coords (no cam offset)
 void compute_map_bounds(int radius) {
     int first = 1;
-    for (int row = 0; row < MAP_ROWS; row++) {
-        for (int col = 0; col < MAP_COLS; col++) {
+    for (int row = 0; row < g_map_rows; row++) {
+        for (int col = 0; col < g_map_cols; col++) {
             int cx = col * (radius * 3 / 2) + radius + 50;
             int cy = row * (radius * sqrt(3)) + radius + 50;
             if (col % 2) cy += radius * sqrt(3) / 2;
@@ -82,8 +91,8 @@ void compute_map_bounds(int radius) {
 
 // Clamp camera so map stays within window
 void clamp_camera() {
-    int min_cam_x = -map_min_x;
-    int max_cam_x = WINDOW_WIDTH - map_max_x;
+    int min_cam_x = WINDOW_WIDTH - map_max_x;
+    int max_cam_x = -map_min_x;
     if (min_cam_x > max_cam_x) {
         cam_x = (min_cam_x + max_cam_x) / 2; // center if map narrower than window
     } else {
@@ -91,8 +100,8 @@ void clamp_camera() {
         if (cam_x > max_cam_x) cam_x = max_cam_x;
     }
 
-    int min_cam_y = -map_min_y;
-    int max_cam_y = WINDOW_HEIGHT - map_max_y;
+    int min_cam_y = WINDOW_HEIGHT - map_max_y;
+    int max_cam_y = -map_min_y;
     if (min_cam_y > max_cam_y) {
         cam_y = (min_cam_y + max_cam_y) / 2;
     } else {
@@ -229,24 +238,34 @@ int main(int argc, char* argv[]) {
     );
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
-    // 尝试加载系统字体（DejaVu），字体大小 16
-    const char* font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
-    g_font = TTF_OpenFont(font_path, 16);
+    /* load config, allocate map and open font from config */
+    config_init();
+    g_map_rows = config_get_map_rows();
+    g_map_cols = config_get_map_cols();
+    g_terrain_map = (Terrain*)malloc(sizeof(Terrain) * g_map_rows * g_map_cols);
+    if (!g_terrain_map) {
+        fprintf(stderr, "Failed to allocate terrain map %dx%d\n", g_map_rows, g_map_cols);
+        return 1;
+    }
+
+    const char* font_path = config_get_font_path();
+    int font_size = config_get_font_size();
+    g_font = TTF_OpenFont(font_path, font_size);
     if (!g_font) {
         fprintf(stderr, "Failed to open font '%s': %s\n", font_path, TTF_GetError());
     }
 
-    // 初始化地形（示例：伪随机或图案）
+    /* 初始化地形（示例：伪随机或图案） */
     srand((unsigned)time(NULL));
-    for (int r = 0; r < MAP_ROWS; r++) {
-        for (int c = 0; c < MAP_COLS; c++) {
+    for (int r = 0; r < g_map_rows; r++) {
+        for (int c = 0; c < g_map_cols; c++) {
             int v = (r + c*2 + rand()%3) % TERRAIN_COUNT;
-            terrain_map[r][c] = (Terrain)v;
+            TERRAIN_AT(r,c) = (Terrain)v;
         }
     }
 
-    // 计算地图边界并初始化相机限制
-    compute_map_bounds(HEX_RADIUS - 1);
+    /* 计算地图边界并初始化相机限制 */
+    compute_map_bounds(current_radius - 1);
     clamp_camera();
 
     int running = 1;
@@ -265,22 +284,30 @@ int main(int argc, char* argv[]) {
                 int mx = event.button.x;
                 int my = event.button.y;
                 int found = 0;
-                for (int row = 0; row < MAP_ROWS && !found; row++) {
-                    for (int col = 0; col < MAP_COLS; col++) {
+                for (int row = 0; row < g_map_rows && !found; row++) {
+                    for (int col = 0; col < g_map_cols; col++) {
                         int cx, cy;
-                        hex_center(row, col, HEX_RADIUS, &cx, &cy);
+                        hex_center(row, col, current_radius, &cx, &cy);
                         SDL_Point pts[6];
-                        compute_hex_points(cx, cy, HEX_RADIUS-1, pts);
+                        compute_hex_points(cx, cy, current_radius-1, pts);
                         if (point_in_polygon(pts, 6, mx, my)) {
-                            selected_row = row;
-                            selected_col = col;
-                            Terrain t = terrain_map[row][col];
+                            Terrain t = TERRAIN_AT(row,col);
                             const char* names[] = {"Plains","Hills","Forest","Desert","Water","Mountain"};
-                            char title[128];
-                            snprintf(title, sizeof(title), "Hex (%d,%d) - %s", row, col, names[t]);
-                            SDL_SetWindowTitle(window, title);
                             char info[256];
-                            snprintf(info, sizeof(info), "Cell: (%d,%d)  Terrain: %s", row, col, names[t]);
+                            if (selected_row == row && selected_col == col) {
+                                /* toggle off */
+                                selected_row = selected_col = -1;
+                                SDL_SetWindowTitle(window, "Hex Terrain Map");
+                                snprintf(info, sizeof(info), "Cell: (%d,%d)  Terrain: %s  Selected: no", row, col, names[t]);
+                            } else {
+                                /* select this cell */
+                                selected_row = row;
+                                selected_col = col;
+                                char title[128];
+                                snprintf(title, sizeof(title), "Hex (%d,%d) - %s", row, col, names[t]);
+                                SDL_SetWindowTitle(window, title);
+                                snprintf(info, sizeof(info), "Cell: (%d,%d)  Terrain: %s  Selected: yes", row, col, names[t]);
+                            }
                             create_text_texture(renderer, info);
                             found = 1;
                             break;
@@ -297,6 +324,24 @@ int main(int argc, char* argv[]) {
                 // end dragging
                 dragging = 0;
             }
+            else if (event.type == SDL_MOUSEWHEEL) {
+                int mx, my;
+                SDL_GetMouseState(&mx, &my);
+                int old_r = current_radius;
+                float factor = (event.wheel.y > 0) ? 1.1f : 0.9f;
+                int new_r = (int) (old_r * factor + 0.5f);
+                if (new_r < MIN_RADIUS) new_r = MIN_RADIUS;
+                if (new_r > MAX_RADIUS) new_r = MAX_RADIUS;
+                if (new_r != old_r) {
+                    float scale = (float)new_r / (float)old_r;
+                    // zoom towards mouse: adjust camera so mouse points stays approximately same
+                    cam_x = mx - (int)((mx - cam_x) * scale);
+                    cam_y = my - (int)((my - cam_y) * scale);
+                    current_radius = new_r;
+                    compute_map_bounds(current_radius - 1);
+                    clamp_camera();
+                }
+            }
             else if (event.type == SDL_MOUSEMOTION) {
                 if (dragging) {
                     int mx = event.motion.x;
@@ -311,15 +356,15 @@ int main(int argc, char* argv[]) {
         SDL_RenderClear(renderer);
 
         // 绘制六边形地图，根据地形设置颜色
-        for (int row = 0; row < MAP_ROWS; row++) {
-            for (int col = 0; col < MAP_COLS; col++) {
+        for (int row = 0; row < g_map_rows; row++) {
+            for (int col = 0; col < g_map_cols; col++) {
                 int cx, cy;
-                hex_center(row, col, HEX_RADIUS, &cx, &cy);
-                draw_hex_terrain(renderer, cx, cy, HEX_RADIUS - 1, terrain_map[row][col]);
+                hex_center(row, col, current_radius, &cx, &cy);
+                draw_hex_terrain(renderer, cx, cy, current_radius - 1, TERRAIN_AT(row,col));
                 // 如果被选中，高亮边框
                 if (row == selected_row && col == selected_col) {
                     SDL_Point pts[6];
-                    compute_hex_points(cx, cy, HEX_RADIUS - 1, pts);
+                    compute_hex_points(cx, cy, current_radius - 1, pts);
                     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
                     SDL_SetRenderDrawColor(renderer, 255, 255, 0, 200);
                     // 再次绘制边框以示高亮

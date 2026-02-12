@@ -40,11 +40,71 @@ int selected_col = -1;
 TTF_Font* g_font = NULL;
 SDL_Texture* g_info_tex = NULL;
 int g_info_w = 0, g_info_h = 0;
+// Camera / panning
+int cam_x = 0;
+int cam_y = 0;
+int dragging = 0;
+int drag_start_x = 0;
+int drag_start_y = 0;
+int cam_start_x = 0;
+int cam_start_y = 0;
+
+// Map bounds (world coords, without cam)
+int map_min_x = 0, map_max_x = 0, map_min_y = 0, map_max_y = 0;
+
+void compute_hex_points(int cx, int cy, int radius, SDL_Point* pts);
+
+// Compute map pixel bounds (including hex vertices) in world coords (no cam offset)
+void compute_map_bounds(int radius) {
+    int first = 1;
+    for (int row = 0; row < MAP_ROWS; row++) {
+        for (int col = 0; col < MAP_COLS; col++) {
+            int cx = col * (radius * 3 / 2) + radius + 50;
+            int cy = row * (radius * sqrt(3)) + radius + 50;
+            if (col % 2) cy += radius * sqrt(3) / 2;
+            SDL_Point pts[6];
+            compute_hex_points(cx, cy, radius, pts);
+            for (int i = 0; i < 6; i++) {
+                if (first) {
+                    map_min_x = map_max_x = pts[i].x;
+                    map_min_y = map_max_y = pts[i].y;
+                    first = 0;
+                } else {
+                    if (pts[i].x < map_min_x) map_min_x = pts[i].x;
+                    if (pts[i].x > map_max_x) map_max_x = pts[i].x;
+                    if (pts[i].y < map_min_y) map_min_y = pts[i].y;
+                    if (pts[i].y > map_max_y) map_max_y = pts[i].y;
+                }
+            }
+        }
+    }
+}
+
+// Clamp camera so map stays within window
+void clamp_camera() {
+    int min_cam_x = -map_min_x;
+    int max_cam_x = WINDOW_WIDTH - map_max_x;
+    if (min_cam_x > max_cam_x) {
+        cam_x = (min_cam_x + max_cam_x) / 2; // center if map narrower than window
+    } else {
+        if (cam_x < min_cam_x) cam_x = min_cam_x;
+        if (cam_x > max_cam_x) cam_x = max_cam_x;
+    }
+
+    int min_cam_y = -map_min_y;
+    int max_cam_y = WINDOW_HEIGHT - map_max_y;
+    if (min_cam_y > max_cam_y) {
+        cam_y = (min_cam_y + max_cam_y) / 2;
+    } else {
+        if (cam_y < min_cam_y) cam_y = min_cam_y;
+        if (cam_y > max_cam_y) cam_y = max_cam_y;
+    }
+}
 
 // 计算六边形中心点坐标
 void hex_center(int row, int col, int radius, int* x, int* y) {
-    *x = col * (radius * 3 / 2) + radius + 50;
-    *y = row * (radius * sqrt(3)) + radius + 50;
+    *x = col * (radius * 3 / 2) + radius + 50 + cam_x;
+    *y = row * (radius * sqrt(3)) + radius + 50 + cam_y;
     if (col % 2) {
         *y += radius * sqrt(3) / 2;
     }
@@ -185,12 +245,23 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // 计算地图边界并初始化相机限制
+    compute_map_bounds(HEX_RADIUS - 1);
+    clamp_camera();
+
     int running = 1;
     SDL_Event event;
     while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
             else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
+                // start dragging
+                dragging = 1;
+                drag_start_x = event.button.x;
+                drag_start_y = event.button.y;
+                cam_start_x = cam_x;
+                cam_start_y = cam_y;
+                // also perform a click selection
                 int mx = event.button.x;
                 int my = event.button.y;
                 int found = 0;
@@ -220,6 +291,19 @@ int main(int argc, char* argv[]) {
                     selected_row = selected_col = -1;
                     SDL_SetWindowTitle(window, "Hex Terrain Map");
                     if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
+                }
+            }
+            else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
+                // end dragging
+                dragging = 0;
+            }
+            else if (event.type == SDL_MOUSEMOTION) {
+                if (dragging) {
+                    int mx = event.motion.x;
+                    int my = event.motion.y;
+                    cam_x = cam_start_x + (mx - drag_start_x);
+                    cam_y = cam_start_y + (my - drag_start_y);
+                    clamp_camera();
                 }
             }
         }

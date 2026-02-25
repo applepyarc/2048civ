@@ -42,6 +42,7 @@ typedef enum {
 
 /* Include runtime config and runtime-sized terrain buffer */
 #include "config.h"
+#include "perlin.h"
 
 int g_map_rows = 0;
 int g_map_cols = 0;
@@ -361,6 +362,8 @@ int point_in_polygon(SDL_Point* pts, int n, int x, int y) {
     return inside;
 }
 
+
+
 // Create texture from text (frees previous texture if non-NULL)
 int create_text_texture(SDL_Renderer* renderer, const char* text) {
     if (!g_font) return 0;
@@ -441,12 +444,35 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Failed to open font '%s': %s\n", font_path, TTF_GetError());
     }
 
-    /* 初始化地形（示例：伪随机或图案） */
-    srand((unsigned)time(NULL));
+    /* 初始化地形：使用分形 Perlin 噪声生成更真实的地形 */
+    unsigned int seed = (unsigned)time(NULL);
+    /* initialize perlin with params from config */
+    PerlinParams pp;
+    config_get_perlin_params(&pp);
+    if (pp.seed == 0) pp.seed = seed;
+    perlin_init_with_params(&pp);
+
     for (int r = 0; r < g_map_rows; r++) {
         for (int c = 0; c < g_map_cols; c++) {
-            int v = (r + c*2 + rand()%3) % TERRAIN_COUNT;
-            TERRAIN_AT(r,c) = (Terrain)v;
+            float elev = perlin_elevation((float)c, (float)r);
+            float m = perlin_moisture((float)c, (float)r);
+
+            Terrain t;
+            if (elev < 0.35f) {
+                t = TERRAIN_WATER;
+            } else if (elev > 0.85f) {
+                t = TERRAIN_MOUNTAIN;
+            } else if (elev > 0.6f) {
+                /* higher ground: hills or forest depending on moisture */
+                if (m > 0.55f) t = TERRAIN_FOREST;
+                else t = TERRAIN_HILLS;
+            } else {
+                /* low/medium ground: desert/plains/forest by moisture */
+                if (m < 0.28f) t = TERRAIN_DESERT;
+                else if (m > 0.65f) t = TERRAIN_FOREST;
+                else t = TERRAIN_PLAINS;
+            }
+            TERRAIN_AT(r,c) = t;
         }
     }
 

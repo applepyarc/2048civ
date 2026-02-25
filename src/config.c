@@ -21,6 +21,15 @@ static int s_font_size = DEFAULT_FONT_SIZE;
 static int s_window_width = DEFAULT_WINDOW_WIDTH;
 static int s_window_height = DEFAULT_WINDOW_HEIGHT;
 static float s_split_ratio = DEFAULT_SPLIT_RATIO;
+/* perlin defaults */
+static PerlinParams s_perlin_params = {
+    .scale = 0.03f,
+    .octaves = 5,
+    .persistence = 0.5f,
+    .moisture_scale = 0.06f,
+    .moisture_octaves = 4,
+    .seed = 0
+};
 static int s_initialized = 0;
 
 static void apply_env_overrides(void) {
@@ -60,6 +69,37 @@ static void apply_env_overrides(void) {
         float f = (float)atof(e);
         if (f > 0.0f && f < 1.0f) s_split_ratio = f;
     }
+    /* perlin overrides */
+    e = getenv("2048CIV_PERLIN_SCALE");
+    if (e) {
+        float f = (float)atof(e);
+        if (f > 0.0f) s_perlin_params.scale = f;
+    }
+    e = getenv("2048CIV_PERLIN_OCTAVES");
+    if (e) {
+        int v = atoi(e);
+        if (v > 0) s_perlin_params.octaves = v;
+    }
+    e = getenv("2048CIV_PERLIN_PERSISTENCE");
+    if (e) {
+        float f = (float)atof(e);
+        if (f > 0.0f && f <= 1.0f) s_perlin_params.persistence = f;
+    }
+    e = getenv("2048CIV_PERLIN_MOISTURE_SCALE");
+    if (e) {
+        float f = (float)atof(e);
+        if (f > 0.0f) s_perlin_params.moisture_scale = f;
+    }
+    e = getenv("2048CIV_PERLIN_MOISTURE_OCTAVES");
+    if (e) {
+        int v = atoi(e);
+        if (v > 0) s_perlin_params.moisture_octaves = v;
+    }
+    e = getenv("2048CIV_PERLIN_SEED");
+    if (e) {
+        unsigned int v = (unsigned int)atoi(e);
+        if (v != 0) s_perlin_params.seed = v;
+    }
 }
 
 int config_init(void) {
@@ -70,6 +110,13 @@ int config_init(void) {
     s_window_width = DEFAULT_WINDOW_WIDTH;
     s_window_height = DEFAULT_WINDOW_HEIGHT;
     s_split_ratio = DEFAULT_SPLIT_RATIO;
+    /* reset perlin defaults */
+    s_perlin_params.scale = 0.03f;
+    s_perlin_params.octaves = 5;
+    s_perlin_params.persistence = 0.5f;
+    s_perlin_params.moisture_scale = 0.06f;
+    s_perlin_params.moisture_octaves = 4;
+    s_perlin_params.seed = 0;
     /* override from environment */
     apply_env_overrides();
     s_initialized = 1;
@@ -109,6 +156,12 @@ int config_get_window_height(void) {
 float config_get_split_ratio(void) {
     if (!s_initialized) config_init();
     return s_split_ratio;
+}
+
+void config_get_perlin_params(PerlinParams* out) {
+    if (!s_initialized) config_init();
+    if (!out) return;
+    *out = s_perlin_params;
 }
 
 void config_free(void) {

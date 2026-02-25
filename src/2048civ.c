@@ -27,6 +27,8 @@ const int MIN_RADIUS = 8;
 const int MAX_RADIUS = 120;
 /* minimum radius at which to show per-cell coordinates when enabled */
 #define COORDS_SHOW_MIN_RADIUS 16
+/* pixels threshold to treat mouse press+release as a click (not a drag) */
+#define CLICK_DRAG_THRESHOLD 5
 /* MAP size is provided by config at runtime */
 
 // 地形枚举
@@ -490,14 +492,24 @@ int main(int argc, char* argv[]) {
             else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
                 int mx = event.button.x;
                 int my = event.button.y;
-                /* only start dragging / map selection when clicking in main map area */
+                /* only start dragging when pressing in main map area; selection will be handled on mouse-up if not dragged */
                 if (mx < g_main_width) {
-                    // start dragging
                     dragging = 1;
                     drag_start_x = mx;
                     drag_start_y = my;
                     cam_start_x = cam_x;
                     cam_start_y = cam_y;
+                }
+                /* clicks in info panel are ignored for map interactions */
+            }
+            else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
+                int mx = event.button.x;
+                int my = event.button.y;
+                int dx = mx - drag_start_x; if (dx < 0) dx = -dx;
+                int dy = my - drag_start_y; if (dy < 0) dy = -dy;
+                int is_click = (dx <= CLICK_DRAG_THRESHOLD && dy <= CLICK_DRAG_THRESHOLD);
+                if (is_click && mx < g_main_width) {
+                    /* treat as a click: perform selection logic */
                     /* if a path is currently displayed, clear it on any map click */
                     if (path_len > 0) {
                         int total = g_map_rows * g_map_cols;
@@ -573,10 +585,7 @@ int main(int argc, char* argv[]) {
                         if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
                     }
                 }
-                /* clicks in info panel are ignored for map interactions */
-            }
-            else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
-                // end dragging
+                /* end dragging */
                 dragging = 0;
             }
             else if (event.type == SDL_MOUSEWHEEL) {

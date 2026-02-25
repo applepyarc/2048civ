@@ -25,6 +25,8 @@ int g_main_width = WINDOW_WIDTH * 4 / 5;
 int current_radius = HEX_RADIUS;
 const int MIN_RADIUS = 8;
 const int MAX_RADIUS = 120;
+/* minimum radius at which to show per-cell coordinates when enabled */
+#define COORDS_SHOW_MIN_RADIUS 16
 /* MAP size is provided by config at runtime */
 
 // 地形枚举
@@ -654,7 +656,7 @@ int main(int argc, char* argv[]) {
                 hex_center(row, col, current_radius, &cx, &cy);
                 draw_hex_terrain(renderer, cx, cy, current_radius - 1, TERRAIN_AT(row,col));
 
-                if (show_cell_coords_enabled) {
+                if (show_cell_coords_enabled && current_radius >= COORDS_SHOW_MIN_RADIUS) {
                     char coordbuf[32];
                     snprintf(coordbuf, sizeof(coordbuf), "%d,%d", row, col);
                     int tw=0, th=0;

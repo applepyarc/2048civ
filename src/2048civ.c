@@ -533,6 +533,8 @@ int main(int argc, char* argv[]) {
                             if (path_start_row == -1) {
                                 /* set start */
                                 path_start_row = row; path_start_col = col;
+                                /* mark selection for highlighting */
+                                selected_row = row; selected_col = col;
                                 /* clear any previous path */
                                 if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
                                 snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
@@ -541,9 +543,13 @@ int main(int argc, char* argv[]) {
                                 path_start_row = path_start_col = -1;
                                 if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
                                 snprintf(info, sizeof(info), "Start cleared (%d,%d)", row, col);
+                                /* clear selection highlight when clearing start */
+                                selected_row = selected_col = -1;
                             } else if (path_end_row == -1) {
                                 /* set end and compute path */
                                 path_end_row = row; path_end_col = col;
+                                /* mark selection */
+                                selected_row = row; selected_col = col;
                                 snprintf(info, sizeof(info), "End: (%d,%d) Terrain: %s", row, col, names[t]);
                                 compute_path(path_start_row, path_start_col, path_end_row, path_end_col);
                                 /* build path coordinate string for UI (truncate if long) */
@@ -691,7 +697,7 @@ int main(int argc, char* argv[]) {
                     SDL_Point pts[6];
                     compute_hex_points(cx, cy, current_radius - 1, pts);
                     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-                    SDL_SetRenderDrawColor(renderer, 255, 255, 0, 200);
+                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 200);
                     // 再次绘制边框以示高亮
                     SDL_RenderDrawLines(renderer, pts, 6);
                     SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);

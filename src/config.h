@@ -11,6 +11,9 @@ int config_get_map_rows(void);
 int config_get_map_cols(void);
 const char* config_get_font_path(void);
 int config_get_font_size(void);
+int config_get_window_width(void);
+int config_get_window_height(void);
+float config_get_split_ratio(void);
 void config_free(void);
 
 #ifdef __cplusplus

@@ -16,6 +16,11 @@
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 700
 
+/* runtime window/layout (set from config at startup) */
+int g_window_width = WINDOW_WIDTH;
+int g_window_height = WINDOW_HEIGHT;
+/* width of main map area (left), info panel occupies remaining width */
+int g_main_width = WINDOW_WIDTH * 4 / 5;
 #define HEX_RADIUS 40 // 默认六边形半径
 int current_radius = HEX_RADIUS;
 const int MIN_RADIUS = 8;
@@ -254,7 +259,7 @@ void compute_map_bounds(int radius) {
 
 // Clamp camera so map stays within window
 void clamp_camera() {
-    int min_cam_x = WINDOW_WIDTH - map_max_x;
+    int min_cam_x = g_main_width - map_max_x;
     int max_cam_x = -map_min_x;
     if (min_cam_x > max_cam_x) {
         cam_x = (min_cam_x + max_cam_x) / 2; // center if map narrower than window
@@ -263,7 +268,7 @@ void clamp_camera() {
         if (cam_x > max_cam_x) cam_x = max_cam_x;
     }
 
-    int min_cam_y = WINDOW_HEIGHT - map_max_y;
+    int min_cam_y = g_window_height - map_max_y;
     int max_cam_y = -map_min_y;
     if (min_cam_y > max_cam_y) {
         cam_y = (min_cam_y + max_cam_y) / 2;
@@ -406,16 +411,21 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError());
     }
 
+    /* load config early so window size and split can be applied */
+    config_init();
+    g_window_width = config_get_window_width();
+    g_window_height = config_get_window_height();
+    float split = config_get_split_ratio();
+    if (split <= 0.05f) split = 0.05f; if (split >= 0.95f) split = 0.95f;
+    g_main_width = (int)(g_window_width * split);
+
     SDL_Window* window = SDL_CreateWindow(
         "Hex Terrain Map",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        WINDOW_WIDTH, WINDOW_HEIGHT,
+        g_window_width, g_window_height,
         0
     );
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-
-    /* load config, allocate map and open font from config */
-    config_init();
     g_map_rows = config_get_map_rows();
     g_map_cols = config_get_map_cols();
     g_terrain_map = (Terrain*)malloc(sizeof(Terrain) * g_map_rows * g_map_cols);
@@ -450,89 +460,92 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
             else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
-                // start dragging
-                dragging = 1;
-                drag_start_x = event.button.x;
-                drag_start_y = event.button.y;
-                cam_start_x = cam_x;
-                cam_start_y = cam_y;
-                // also perform a click selection
                 int mx = event.button.x;
                 int my = event.button.y;
-                /* if a path is currently displayed, clear it on any click */
-                if (path_len > 0) {
-                    int total = g_map_rows * g_map_cols;
-                    if (path_nodes) { free(path_nodes); path_nodes = NULL; }
-                    path_len = 0;
-                    if (in_path) memset(in_path, 0, total);
-                    create_text_texture(renderer, "Path cleared");
-                }
-                int found = 0;
-                for (int row = 0; row < g_map_rows && !found; row++) {
-                    for (int col = 0; col < g_map_cols; col++) {
-                        int cx, cy;
-                        hex_center(row, col, current_radius, &cx, &cy);
-                        SDL_Point pts[6];
-                        compute_hex_points(cx, cy, current_radius-1, pts);
-                        if (!point_in_polygon(pts, 6, mx, my)) continue;
-                        /* path selection logic: first click = start, second click = end (compute path) */
-                        Terrain t = TERRAIN_AT(row,col);
-                        const char* names[] = {"Plains","Hills","Forest","Desert","Water","Mountain"};
-                        char info[256];
-                        if (path_start_row == -1) {
-                            /* set start */
-                            path_start_row = row; path_start_col = col;
-                            /* clear any previous path */
-                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
-                            snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
-                        } else if (path_start_row == row && path_start_col == col) {
-                            /* clicked start again -> clear start */
-                            path_start_row = path_start_col = -1;
-                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
-                            snprintf(info, sizeof(info), "Start cleared (%d,%d)", row, col);
-                        } else if (path_end_row == -1) {
-                            /* set end and compute path */
-                            path_end_row = row; path_end_col = col;
-                            snprintf(info, sizeof(info), "End: (%d,%d) Terrain: %s", row, col, names[t]);
-                            compute_path(path_start_row, path_start_col, path_end_row, path_end_col);
-                            /* build path coordinate string for UI (truncate if long) */
-                            if (path_len > 0) {
-                                char pbuf[1024];
-                                int pos = snprintf(pbuf, sizeof(pbuf), "Path len: %d  ", path_len);
-                                for (int pi = 0; pi < path_len; ++pi) {
-                                    int idx = path_nodes[pi];
-                                    int pr = idx / g_map_cols, pc = idx % g_map_cols;
-                                    int n = snprintf(pbuf + pos, sizeof(pbuf) - pos, "(%d,%d)%s", pr, pc, (pi + 1 < path_len) ? "->" : "");
-                                    pos += n;
-                                    if (pos > (int)sizeof(pbuf) - 80) { snprintf(pbuf + pos, sizeof(pbuf) - pos, " ..."); break; }
+                /* only start dragging / map selection when clicking in main map area */
+                if (mx < g_main_width) {
+                    // start dragging
+                    dragging = 1;
+                    drag_start_x = mx;
+                    drag_start_y = my;
+                    cam_start_x = cam_x;
+                    cam_start_y = cam_y;
+                    /* if a path is currently displayed, clear it on any map click */
+                    if (path_len > 0) {
+                        int total = g_map_rows * g_map_cols;
+                        if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+                        path_len = 0;
+                        if (in_path) memset(in_path, 0, total);
+                        create_text_texture(renderer, "Path cleared");
+                    }
+                    int found = 0;
+                    for (int row = 0; row < g_map_rows && !found; row++) {
+                        for (int col = 0; col < g_map_cols; col++) {
+                            int cx, cy;
+                            hex_center(row, col, current_radius, &cx, &cy);
+                            SDL_Point pts[6];
+                            compute_hex_points(cx, cy, current_radius-1, pts);
+                            if (!point_in_polygon(pts, 6, mx, my)) continue;
+                            /* path selection logic: first click = start, second click = end (compute path) */
+                            Terrain t = TERRAIN_AT(row,col);
+                            const char* names[] = {"Plains","Hills","Forest","Desert","Water","Mountain"};
+                            char info[256];
+                            if (path_start_row == -1) {
+                                /* set start */
+                                path_start_row = row; path_start_col = col;
+                                /* clear any previous path */
+                                if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                                snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
+                            } else if (path_start_row == row && path_start_col == col) {
+                                /* clicked start again -> clear start */
+                                path_start_row = path_start_col = -1;
+                                if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                                snprintf(info, sizeof(info), "Start cleared (%d,%d)", row, col);
+                            } else if (path_end_row == -1) {
+                                /* set end and compute path */
+                                path_end_row = row; path_end_col = col;
+                                snprintf(info, sizeof(info), "End: (%d,%d) Terrain: %s", row, col, names[t]);
+                                compute_path(path_start_row, path_start_col, path_end_row, path_end_col);
+                                /* build path coordinate string for UI (truncate if long) */
+                                if (path_len > 0) {
+                                    char pbuf[1024];
+                                    int pos = snprintf(pbuf, sizeof(pbuf), "Path len: %d  ", path_len);
+                                    for (int pi = 0; pi < path_len; ++pi) {
+                                        int idx = path_nodes[pi];
+                                        int pr = idx / g_map_cols, pc = idx % g_map_cols;
+                                        int n = snprintf(pbuf + pos, sizeof(pbuf) - pos, "(%d,%d)%s", pr, pc, (pi + 1 < path_len) ? "->" : "");
+                                        pos += n;
+                                        if (pos > (int)sizeof(pbuf) - 80) { snprintf(pbuf + pos, sizeof(pbuf) - pos, " ..."); break; }
+                                    }
+                                    /* append to the end of info */
+                                    strncat(info, "  ", sizeof(info) - strlen(info) - 1);
+                                    strncat(info, pbuf, sizeof(info) - strlen(info) - 1);
+                                } else {
+                                    strncat(info, "  No path found", sizeof(info) - strlen(info) - 1);
                                 }
-                                /* append to the end of info */
-                                strncat(info, "  ", sizeof(info) - strlen(info) - 1);
-                                strncat(info, pbuf, sizeof(info) - strlen(info) - 1);
                             } else {
-                                strncat(info, "  No path found", sizeof(info) - strlen(info) - 1);
+                                /* both set: start a new start */
+                                path_start_row = row; path_start_col = col;
+                                path_end_row = path_end_col = -1;
+                                if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                                snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
                             }
-                        } else {
-                            /* both set: start a new start */
-                            path_start_row = row; path_start_col = col;
-                            path_end_row = path_end_col = -1;
-                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
-                            snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
+                            create_text_texture(renderer, info);
+                            found = 1;
+                            break;
                         }
-                        create_text_texture(renderer, info);
-                        found = 1;
-                        break;
+                    }
+                    if (!found) {
+                        /* click on empty map area - clear selection and path start/end */
+                        selected_row = selected_col = -1;
+                        path_start_row = path_start_col = -1;
+                        path_end_row = path_end_col = -1;
+                        if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                        SDL_SetWindowTitle(window, "Hex Terrain Map");
+                        if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
                     }
                 }
-                if (!found) {
-                    /* click on empty area - clear selection and path start/end */
-                    selected_row = selected_col = -1;
-                    path_start_row = path_start_col = -1;
-                    path_end_row = path_end_col = -1;
-                    if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
-                    SDL_SetWindowTitle(window, "Hex Terrain Map");
-                    if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
-                }
+                /* clicks in info panel are ignored for map interactions */
             }
             else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
                 // end dragging
@@ -541,19 +554,22 @@ int main(int argc, char* argv[]) {
             else if (event.type == SDL_MOUSEWHEEL) {
                 int mx, my;
                 SDL_GetMouseState(&mx, &my);
-                int old_r = current_radius;
-                float factor = (event.wheel.y > 0) ? 1.1f : 0.9f;
-                int new_r = (int) (old_r * factor + 0.5f);
-                if (new_r < MIN_RADIUS) new_r = MIN_RADIUS;
-                if (new_r > MAX_RADIUS) new_r = MAX_RADIUS;
-                if (new_r != old_r) {
-                    float scale = (float)new_r / (float)old_r;
-                    // zoom towards mouse: adjust camera so mouse points stays approximately same
-                    cam_x = mx - (int)((mx - cam_x) * scale);
-                    cam_y = my - (int)((my - cam_y) * scale);
-                    current_radius = new_r;
-                    compute_map_bounds(current_radius - 1);
-                    clamp_camera();
+                /* only zoom when mouse is over main map area */
+                if (mx < g_main_width) {
+                    int old_r = current_radius;
+                    float factor = (event.wheel.y > 0) ? 1.1f : 0.9f;
+                    int new_r = (int) (old_r * factor + 0.5f);
+                    if (new_r < MIN_RADIUS) new_r = MIN_RADIUS;
+                    if (new_r > MAX_RADIUS) new_r = MAX_RADIUS;
+                    if (new_r != old_r) {
+                        float scale = (float)new_r / (float)old_r;
+                        // zoom towards mouse: adjust camera so mouse points stays approximately same
+                        cam_x = mx - (int)((mx - cam_x) * scale);
+                        cam_y = my - (int)((my - cam_y) * scale);
+                        current_radius = new_r;
+                        compute_map_bounds(current_radius - 1);
+                        clamp_camera();
+                    }
                 }
             }
             else if (event.type == SDL_MOUSEMOTION) {
@@ -565,19 +581,23 @@ int main(int argc, char* argv[]) {
                     clamp_camera();
                     hover_row = hover_col = -1;
                 } else {
-                    /* update hover cell by hit-testing hex polygons */
-                    int found = 0;
-                    for (int row = 0; row < g_map_rows && !found; row++) {
-                        for (int col = 0; col < g_map_cols; col++) {
-                            int cx, cy; SDL_Point pts[6];
-                            hex_center(row, col, current_radius, &cx, &cy);
-                            compute_hex_points(cx, cy, current_radius-1, pts);
-                            if (point_in_polygon(pts, 6, mx, my)) {
-                                hover_row = row; hover_col = col; found = 1; break;
+                    /* only hover test when cursor is over main map area */
+                    if (mx < g_main_width) {
+                        int found = 0;
+                        for (int row = 0; row < g_map_rows && !found; row++) {
+                            for (int col = 0; col < g_map_cols; col++) {
+                                int cx, cy; SDL_Point pts[6];
+                                hex_center(row, col, current_radius, &cx, &cy);
+                                compute_hex_points(cx, cy, current_radius-1, pts);
+                                if (point_in_polygon(pts, 6, mx, my)) {
+                                    hover_row = row; hover_col = col; found = 1; break;
+                                }
                             }
                         }
+                        if (!found) { hover_row = hover_col = -1; }
+                    } else {
+                        hover_row = hover_col = -1;
                     }
-                    if (!found) { hover_row = hover_col = -1; }
                 }
             }
             else if (event.type == SDL_KEYDOWN) {
@@ -596,6 +616,10 @@ int main(int argc, char* argv[]) {
         }
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); // 背景色
         SDL_RenderClear(renderer);
+
+        /* restrict drawing of map to main map area (left pane) */
+        SDL_Rect main_view = {0, 0, g_main_width, g_window_height};
+        SDL_RenderSetViewport(renderer, &main_view);
 
         // 绘制六边形地图，根据地形设置颜色
         for (int row = 0; row < g_map_rows; row++) {
@@ -683,13 +707,17 @@ int main(int argc, char* argv[]) {
             free(pline);
         }
 
-        // 绘制信息纹理（左上角）
+        /* restore full-window viewport for UI/info panel */
+        SDL_RenderSetViewport(renderer, NULL);
+
+        // 绘制信息纹理（信息面板，右侧）
         if (g_info_tex) {
-            SDL_Rect bg = {10, 10, g_info_w + 10, g_info_h + 8};
+            int info_x = g_main_width + 10;
+            SDL_Rect bg = { info_x, 10, g_info_w + 10, g_info_h + 8 };
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 160);
             SDL_RenderFillRect(renderer, &bg);
-            SDL_Rect dst = {15, 14, g_info_w, g_info_h};
+            SDL_Rect dst = { info_x + 5, 14, g_info_w, g_info_h };
             SDL_RenderCopy(renderer, g_info_tex, NULL, &dst);
         }
 

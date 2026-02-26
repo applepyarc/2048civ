@@ -12,6 +12,8 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+#include "sprite.h"
+#include <SDL2/SDL_image.h>
 
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 700
@@ -484,6 +486,82 @@ int main(int argc, char* argv[]) {
     compute_map_bounds(current_radius - 1);
     clamp_camera();
 
+    /* Demo: create a randomized player sprite and an enemy sprite placed on the map */
+    srand((unsigned)time(NULL));
+
+    /* Load atlas texture and parse atlas file for frames */
+    SDL_Texture *atlas_tex = NULL;
+    SDL_Rect player_src = {0,0,16,16}, enemy_src = {0,0,16,16};
+    if (IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG) {
+        SDL_Surface *surf = IMG_Load("res/drawable/dungeon.png");
+        if (surf) {
+            atlas_tex = SDL_CreateTextureFromSurface(renderer, surf);
+            SDL_FreeSurface(surf);
+        } else {
+            fprintf(stderr, "Failed to load atlas image: %s\n", IMG_GetError());
+        }
+    } else {
+        fprintf(stderr, "SDL_image PNG support not initialized\n");
+    }
+
+    /* parse atlas description file for named entries */
+    FILE *af = fopen("res/drawable/dungeon", "r");
+    if (af) {
+        char name[256];
+        while (fscanf(af, "%255s", name) == 1) {
+            int x, y, w, h; int frames = 1;
+            if (fscanf(af, "%d %d %d %d", &x, &y, &w, &h) >= 4) {
+                /* optional frames field */
+                fscanf(af, "%d", &frames);
+                if (strcmp(name, "knight_f_idle_anim") == 0) {
+                    player_src.x = x; player_src.y = y; player_src.w = w; player_src.h = h;
+                } else if (strcmp(name, "big_zombie_idle_anim") == 0) {
+                    enemy_src.x = x; enemy_src.y = y; enemy_src.w = w; enemy_src.h = h;
+                }
+            } else break;
+        }
+        fclose(af);
+    } else {
+        fprintf(stderr, "Failed to open atlas description file res/drawable/dungeon\n");
+    }
+
+    Sprite *player = sprite_create("Player", "Warrior", NULL, 1);
+    Sprite *enemy = sprite_create("Enemy", "Goblin", NULL, 1);
+    if (player) {
+        player->level = 1 + rand() % 10;
+        player->max_hp = 80 + rand() % (200 - 80 + 1);
+        player->hp = player->max_hp/2 + rand() % (player->max_hp - player->max_hp/2 + 1);
+        player->max_mp = 10 + rand() % (80 - 10 + 1);
+        player->mp = rand() % (player->max_mp + 1);
+        player->attack = 5 + rand() % (40 - 5 + 1);
+        player->defense = rand() % 31;
+        player->speed = 1 + rand() % 10;
+        player->action_points = 1 + rand() % 3;
+        player->jump = 1 + rand() % 3;
+        int pr = rand() % g_map_rows; int pc = rand() % g_map_cols;
+        sprite_set_position(player, pr, pc);
+        printf("Player created at cell (%d,%d): lvl=%d HP=%d/%d MP=%d/%d ATK=%d DEF=%d\n",
+               player->x, player->y, player->level, player->hp, player->max_hp,
+               player->mp, player->max_mp, player->attack, player->defense);
+    }
+    if (enemy) {
+        enemy->level = 1 + rand() % 8;
+        enemy->max_hp = 40 + rand() % (160 - 40 + 1);
+        enemy->hp = enemy->max_hp/2 + rand() % (enemy->max_hp - enemy->max_hp/2 + 1);
+        enemy->max_mp = rand() % 41;
+        enemy->mp = rand() % (enemy->max_mp + 1);
+        enemy->attack = 4 + rand() % (30 - 4 + 1);
+        enemy->defense = rand() % 21;
+        enemy->speed = 1 + rand() % 8;
+        enemy->action_points = 1 + rand() % 2;
+        enemy->jump = 1 + rand() % 2;
+        int er = rand() % g_map_rows; int ec = rand() % g_map_cols;
+        sprite_set_position(enemy, er, ec);
+        printf("Enemy created at cell (%d,%d): lvl=%d HP=%d/%d MP=%d/%d ATK=%d DEF=%d\n",
+               enemy->x, enemy->y, enemy->level, enemy->hp, enemy->max_hp,
+               enemy->mp, enemy->max_mp, enemy->attack, enemy->defense);
+    }
+
     int running = 1;
     SDL_Event event;
     while (running) {
@@ -705,6 +783,40 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        /* Draw sprites (player, enemy) if atlas loaded */
+        if (atlas_tex) {
+            if (player) {
+                int pr = player->x, pc = player->y;
+                int px, py; hex_center(pr, pc, current_radius, &px, &py);
+                double hex_w = current_radius * 2.0;
+                double hex_h = current_radius * sqrt(3.0);
+                const double pad = 0.9; /* keep some padding inside the hex */
+                double scale_w = (hex_w * pad) / (double)player_src.w;
+                double scale_h = (hex_h * pad) / (double)player_src.h;
+                double scale = scale_w < scale_h ? scale_w : scale_h;
+                if (scale <= 0.0) scale = 1.0;
+                int dw = (int)(player_src.w * scale + 0.5);
+                int dh = (int)(player_src.h * scale + 0.5);
+                SDL_Rect dst = { px - dw/2, py - dh/2, dw, dh };
+                SDL_RenderCopy(renderer, atlas_tex, &player_src, &dst);
+            }
+            if (enemy) {
+                int er = enemy->x, ec = enemy->y;
+                int ex, ey; hex_center(er, ec, current_radius, &ex, &ey);
+                double hex_w = current_radius * 2.0;
+                double hex_h = current_radius * sqrt(3.0);
+                const double pad = 0.9;
+                double scale_w = (hex_w * pad) / (double)enemy_src.w;
+                double scale_h = (hex_h * pad) / (double)enemy_src.h;
+                double scale = scale_w < scale_h ? scale_w : scale_h;
+                if (scale <= 0.0) scale = 1.0;
+                int dw = (int)(enemy_src.w * scale + 0.5);
+                int dh = (int)(enemy_src.h * scale + 0.5);
+                SDL_Rect dst = { ex - dw/2, ey - dh/2, dw, dh };
+                SDL_RenderCopy(renderer, atlas_tex, &enemy_src, &dst);
+            }
+        }
+
         // 绘制邻居高亮（如果启用并有悬停单元）
         if (highlight_neighbors_enabled && hover_row >= 0 && hover_col >= 0) {
             int nbr_r[6], nbr_c[6];
@@ -768,9 +880,15 @@ int main(int argc, char* argv[]) {
         SDL_Delay(16);
     }
 
+    /* cleanup atlas texture and SDL_image */
+    if (atlas_tex) SDL_DestroyTexture(atlas_tex);
+    IMG_Quit();
     SDL_DestroyRenderer(renderer);
     if (g_info_tex) SDL_DestroyTexture(g_info_tex);
     if (g_font) TTF_CloseFont(g_font);
+    /* destroy demo sprites if present (created earlier in main) */
+    if (player) sprite_destroy(player);
+    if (enemy) sprite_destroy(enemy);
     if (prev_node) { free(prev_node); prev_node = NULL; }
     if (in_path) { free(in_path); in_path = NULL; }
     if (path_nodes) { free(path_nodes); path_nodes = NULL; }

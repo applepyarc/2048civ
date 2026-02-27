@@ -61,6 +61,7 @@ int selected_col = -1;
 // Pathfinding
 int path_start_row = -1, path_start_col = -1;
 int path_end_row = -1, path_end_col = -1;
+int path_preview_row = -1, path_preview_col = -1;
 int *prev_node = NULL; /* flattened prev index */
 unsigned char *in_path = NULL; /* flattened bool */
 int *path_nodes = NULL; /* ordered indices from start->end */
@@ -594,6 +595,7 @@ int main(int argc, char* argv[]) {
                         if (path_nodes) { free(path_nodes); path_nodes = NULL; }
                         path_len = 0;
                         if (in_path) memset(in_path, 0, total);
+                            path_preview_row = path_preview_col = -1;
                         create_text_texture(renderer, "Path cleared");
                     }
                     int found = 0;
@@ -615,11 +617,13 @@ int main(int argc, char* argv[]) {
                                 selected_row = row; selected_col = col;
                                 /* clear any previous path */
                                 if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                                path_preview_row = path_preview_col = -1;
                                 snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
                             } else if (path_start_row == row && path_start_col == col) {
                                 /* clicked start again -> clear start */
                                 path_start_row = path_start_col = -1;
                                 if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                                path_preview_row = path_preview_col = -1;
                                 snprintf(info, sizeof(info), "Start cleared (%d,%d)", row, col);
                                 /* clear selection highlight when clearing start */
                                 selected_row = selected_col = -1;
@@ -630,6 +634,8 @@ int main(int argc, char* argv[]) {
                                 selected_row = row; selected_col = col;
                                 snprintf(info, sizeof(info), "End: (%d,%d) Terrain: %s", row, col, names[t]);
                                 compute_path(path_start_row, path_start_col, path_end_row, path_end_col);
+                                /* end selected: disable hover preview (keep this computed path as final) */
+                                path_preview_row = path_preview_col = -1;
                                 /* build path coordinate string for UI (truncate if long) */
                                 if (path_len > 0) {
                                     char pbuf[1024];
@@ -652,6 +658,9 @@ int main(int argc, char* argv[]) {
                                 path_start_row = row; path_start_col = col;
                                 path_end_row = path_end_col = -1;
                                 if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                                path_preview_row = path_preview_col = -1;
+                                /* clear previous end highlight and highlight the new start */
+                                selected_row = row; selected_col = col;
                                 snprintf(info, sizeof(info), "Start: (%d,%d) Terrain: %s", row, col, names[t]);
                             }
                             create_text_texture(renderer, info);
@@ -665,6 +674,7 @@ int main(int argc, char* argv[]) {
                         path_start_row = path_start_col = -1;
                         path_end_row = path_end_col = -1;
                         if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                        path_preview_row = path_preview_col = -1;
                         SDL_SetWindowTitle(window, "Hex Terrain Map");
                         if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
                     }
@@ -718,6 +728,25 @@ int main(int argc, char* argv[]) {
                         if (!found) { hover_row = hover_col = -1; }
                     } else {
                         hover_row = hover_col = -1;
+                    }
+                    /* Path preview: only when a start is set AND end is NOT set, and cursor is over a cell */
+                    if (path_start_row != -1 && path_end_row == -1 && hover_row >= 0 && hover_col >= 0) {
+                        if (hover_row != path_preview_row || hover_col != path_preview_col) {
+                            path_preview_row = hover_row; path_preview_col = hover_col;
+                            if (in_path) memset(in_path, 0, g_map_rows * g_map_cols);
+                            compute_path(path_start_row, path_start_col, hover_row, hover_col);
+                        }
+                    } else {
+                        /* clear preview if cursor moved off cells or no start/end state for preview */
+                        if (path_preview_row != -1 || path_preview_col != -1) {
+                            path_preview_row = path_preview_col = -1;
+                            if (path_len > 0) {
+                                int total = g_map_rows * g_map_cols;
+                                if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+                                path_len = 0;
+                                if (in_path) memset(in_path, 0, total);
+                            }
+                        }
                     }
                 }
             }

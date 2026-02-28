@@ -10,9 +10,11 @@
 #define DEFAULT_FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 #define DEFAULT_FONT_SIZE 16
 /* Window / layout defaults */
-#define DEFAULT_WINDOW_WIDTH 1024
-#define DEFAULT_WINDOW_HEIGHT 1000
+#define DEFAULT_WINDOW_WIDTH 800
+#define DEFAULT_WINDOW_HEIGHT 600
 #define DEFAULT_SPLIT_RATIO 0.8f /* main area fraction (e.g. 0.8 == 4/5) */
+/* movement defaults (milliseconds per tile) */
+#define DEFAULT_MOVE_MS 200
 
 static int s_map_rows = DEFAULT_MAP_ROWS;
 static int s_map_cols = DEFAULT_MAP_COLS;
@@ -21,6 +23,7 @@ static int s_font_size = DEFAULT_FONT_SIZE;
 static int s_window_width = DEFAULT_WINDOW_WIDTH;
 static int s_window_height = DEFAULT_WINDOW_HEIGHT;
 static float s_split_ratio = DEFAULT_SPLIT_RATIO;
+static int s_move_ms = DEFAULT_MOVE_MS;
 /* perlin defaults */
 static PerlinParams s_perlin_params = {
     .scale = 0.03f,
@@ -69,6 +72,11 @@ static void apply_env_overrides(void) {
         float f = (float)atof(e);
         if (f > 0.0f && f < 1.0f) s_split_ratio = f;
     }
+    e = getenv("2048CIV_MOVE_MS");
+    if (e) {
+        int v = atoi(e);
+        if (v > 0) s_move_ms = v;
+    }
     /* perlin overrides */
     e = getenv("2048CIV_PERLIN_SCALE");
     if (e) {
@@ -110,6 +118,7 @@ int config_init(void) {
     s_window_width = DEFAULT_WINDOW_WIDTH;
     s_window_height = DEFAULT_WINDOW_HEIGHT;
     s_split_ratio = DEFAULT_SPLIT_RATIO;
+    s_move_ms = DEFAULT_MOVE_MS;
     /* reset perlin defaults */
     s_perlin_params.scale = 0.03f;
     s_perlin_params.octaves = 5;
@@ -162,6 +171,11 @@ void config_get_perlin_params(PerlinParams* out) {
     if (!s_initialized) config_init();
     if (!out) return;
     *out = s_perlin_params;
+}
+
+int config_get_move_ms(void) {
+    if (!s_initialized) config_init();
+    return s_move_ms;
 }
 
 void config_free(void) {

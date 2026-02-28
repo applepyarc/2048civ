@@ -351,6 +351,9 @@ int main(int argc, char* argv[]) {
     /* Load atlas texture and parse atlas file for frames */
     SDL_Texture *atlas_tex = NULL;
     SDL_Rect player_src = {0,0,16,16}, enemy_src = {0,0,16,16};
+    /* optional run animation frames for player loaded from atlas */
+    int player_run_x = 0, player_run_y = 0, player_run_w = 0, player_run_h = 0;
+    int player_run_frames = 0;
     if (IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG) {
         SDL_Surface *surf = IMG_Load("res/drawable/dungeon.png");
         if (surf) {
@@ -369,14 +372,16 @@ int main(int argc, char* argv[]) {
         char name[256];
         while (fscanf(af, "%255s", name) == 1) {
             int x, y, w, h; int frames = 1;
-            if (fscanf(af, "%d %d %d %d", &x, &y, &w, &h) >= 4) {
-                /* optional frames field */
-                fscanf(af, "%d", &frames);
-                if (strcmp(name, "knight_f_idle_anim") == 0) {
-                    player_src.x = x; player_src.y = y; player_src.w = w; player_src.h = h;
-                } else if (strcmp(name, "big_zombie_idle_anim") == 0) {
-                    enemy_src.x = x; enemy_src.y = y; enemy_src.w = w; enemy_src.h = h;
-                }
+                if (fscanf(af, "%d %d %d %d", &x, &y, &w, &h) >= 4) {
+                    /* optional frames field */
+                    fscanf(af, "%d", &frames);
+                    if (strcmp(name, "knight_f_idle_anim") == 0) {
+                        player_src.x = x; player_src.y = y; player_src.w = w; player_src.h = h;
+                    } else if (strcmp(name, "knight_f_run_anim") == 0) {
+                        player_run_x = x; player_run_y = y; player_run_w = w; player_run_h = h; player_run_frames = frames > 0 ? frames : 1;
+                    } else if (strcmp(name, "big_zombie_idle_anim") == 0) {
+                        enemy_src.x = x; enemy_src.y = y; enemy_src.w = w; enemy_src.h = h;
+                    }
             } else break;
         }
         fclose(af);
@@ -421,6 +426,17 @@ int main(int argc, char* argv[]) {
                enemy->mp, enemy->max_mp, enemy->attack, enemy->defense);
     }
 
+    /* movement state: when a path (path_nodes) is computed and an endpoint selected,
+        we will animate the player along the path at a configurable ms-per-tile speed. */
+    int moving = 0;
+    int move_index = 0; /* next index in path_nodes to move to (0 is start) */
+    Uint32 last_move_tick = 0;
+    int move_ms = config_get_move_ms();
+    /* animation timing for run frames */
+    Uint32 last_anim_tick = 0;
+    int player_run_frame = 0;
+    int anim_frame_ms = 120; /* ms per animation frame while running */
+
     int running = 1;
     SDL_Event event;
     while (running) {
@@ -454,6 +470,8 @@ int main(int argc, char* argv[]) {
                         path_len = 0;
                         if (in_path) memset(in_path, 0, total);
                             path_preview_row = path_preview_col = -1;
+                        /* stop any ongoing movement when user clicks to change selection */
+                        moving = 0;
                         create_text_texture(renderer, "Path cleared");
                     }
                     int found = 0;
@@ -470,6 +488,12 @@ int main(int argc, char* argv[]) {
                             char info[256];
                             if (path_start_row == -1) {
                                 /* set start */
+                                /* only allow start if the clicked cell contains the player */
+                                if (!player || player->x != row || player->y != col) {
+                                    snprintf(info, sizeof(info), "Start must be player cell");
+                                    create_text_texture(renderer, info);
+                                    found = 1; break;
+                                }
                                 path_start_row = row; path_start_col = col;
                                 /* mark selection for highlighting */
                                 selected_row = row; selected_col = col;
@@ -487,6 +511,17 @@ int main(int argc, char* argv[]) {
                                 selected_row = selected_col = -1;
                             } else if (path_end_row == -1) {
                                 /* set end and compute path */
+                                /* disallow choosing an end that is occupied by player or enemy */
+                                if (player && player->x == row && player->y == col) {
+                                    snprintf(info, sizeof(info), "End cannot be player's cell");
+                                    create_text_texture(renderer, info);
+                                    found = 1; break;
+                                }
+                                if (enemy && enemy->x == row && enemy->y == col) {
+                                    snprintf(info, sizeof(info), "End cannot be enemy's cell");
+                                    create_text_texture(renderer, info);
+                                    found = 1; break;
+                                }
                                 path_end_row = row; path_end_col = col;
                                 /* mark selection */
                                 selected_row = row; selected_col = col;
@@ -510,6 +545,15 @@ int main(int argc, char* argv[]) {
                                     strncat(info, pbuf, sizeof(info) - strlen(info) - 1);
                                 } else {
                                     strncat(info, "  No path found", sizeof(info) - strlen(info) - 1);
+                                }
+                                /* if a path was found, begin moving the player along it */
+                                if (path_len > 0) {
+                                    /* start movement from index 1 (0 is current player cell) */
+                                    moving = 1;
+                                    move_index = 1;
+                                    last_move_tick = SDL_GetTicks();
+                                    last_anim_tick = last_move_tick;
+                                    player_run_frame = 0;
                                 }
                             } else {
                                 /* both set: start a new start */
@@ -670,22 +714,60 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        /* Advance movement along path and update run animation frame */
+        {
+            Uint32 now = SDL_GetTicks();
+            if (moving && path_len > 0 && path_nodes && move_index < path_len) {
+                if (now - last_move_tick >= (Uint32)move_ms) {
+                    int idx = path_nodes[move_index];
+                    int nr = idx / g_map_cols, nc = idx % g_map_cols;
+                    if (player) sprite_set_position(player, nr, nc);
+                    move_index++;
+                    last_move_tick = now;
+                    if (move_index >= path_len) {
+                        moving = 0;
+                        /* clear path data */
+                        int total = g_map_rows * g_map_cols;
+                        if (path_nodes) { free(path_nodes); path_nodes = NULL; }
+                        path_len = 0;
+                        if (in_path) memset(in_path, 0, total);
+                        path_start_row = path_start_col = path_end_row = path_end_col = -1;
+                        create_text_texture(renderer, "Movement complete");
+                    }
+                }
+                if (player_run_frames > 0 && now - last_anim_tick >= (Uint32)anim_frame_ms) {
+                    player_run_frame = (player_run_frame + 1) % player_run_frames;
+                    last_anim_tick = now;
+                }
+            } else {
+                player_run_frame = 0;
+            }
+        }
+
         /* Draw sprites (player, enemy) if atlas loaded */
         if (atlas_tex) {
             if (player) {
                 int pr = player->x, pc = player->y;
                 int px, py; hex_center(pr, pc, current_radius, &px, &py);
+                /* choose source rect: running frames when moving, otherwise idle */
+                SDL_Rect cur_src = player_src;
+                if (moving && player_run_frames > 0 && player_run_w > 0) {
+                    cur_src.x = player_run_x + player_run_frame * player_run_w;
+                    cur_src.y = player_run_y;
+                    cur_src.w = player_run_w;
+                    cur_src.h = player_run_h;
+                }
                 double hex_w = current_radius * 2.0;
                 double hex_h = current_radius * sqrt(3.0);
                 const double pad = 0.9; /* keep some padding inside the hex */
-                double scale_w = (hex_w * pad) / (double)player_src.w;
-                double scale_h = (hex_h * pad) / (double)player_src.h;
+                double scale_w = (hex_w * pad) / (double)cur_src.w;
+                double scale_h = (hex_h * pad) / (double)cur_src.h;
                 double scale = scale_w < scale_h ? scale_w : scale_h;
                 if (scale <= 0.0) scale = 1.0;
-                int dw = (int)(player_src.w * scale + 0.5);
-                int dh = (int)(player_src.h * scale + 0.5);
+                int dw = (int)(cur_src.w * scale + 0.5);
+                int dh = (int)(cur_src.h * scale + 0.5);
                 SDL_Rect dst = { px - dw/2, py - dh/2, dw, dh };
-                SDL_RenderCopy(renderer, atlas_tex, &player_src, &dst);
+                SDL_RenderCopy(renderer, atlas_tex, &cur_src, &dst);
             }
             if (enemy) {
                 int er = enemy->x, ec = enemy->y;

@@ -436,6 +436,10 @@ int main(int argc, char* argv[]) {
     Uint32 last_anim_tick = 0;
     int player_run_frame = 0;
     int anim_frame_ms = 120; /* ms per animation frame while running */
+    /* interpolation state for smooth movement between hex cells */
+    int move_from_r = -1, move_from_c = -1;
+    int move_to_r = -1, move_to_c = -1;
+    float move_progress = 0.0f; /* 0.0 .. 1.0 */
 
     int running = 1;
     SDL_Event event;
@@ -472,6 +476,9 @@ int main(int argc, char* argv[]) {
                             path_preview_row = path_preview_col = -1;
                         /* stop any ongoing movement when user clicks to change selection */
                         moving = 0;
+                        /* reset interpolation state */
+                        move_progress = 0.0f;
+                        move_from_r = move_from_c = move_to_r = move_to_c = -1;
                         create_text_texture(renderer, "Path cleared");
                     }
                     int found = 0;
@@ -547,14 +554,25 @@ int main(int argc, char* argv[]) {
                                     strncat(info, "  No path found", sizeof(info) - strlen(info) - 1);
                                 }
                                 /* if a path was found, begin moving the player along it */
-                                if (path_len > 0) {
-                                    /* start movement from index 1 (0 is current player cell) */
-                                    moving = 1;
-                                    move_index = 1;
-                                    last_move_tick = SDL_GetTicks();
-                                    last_anim_tick = last_move_tick;
-                                    player_run_frame = 0;
-                                }
+                                if (path_len > 1) {
+                                                /* start movement from index 1 (0 is current player cell) */
+                                                moving = 1;
+                                                move_index = 1;
+                                                last_move_tick = SDL_GetTicks();
+                                                last_anim_tick = last_move_tick;
+                                                player_run_frame = 0;
+                                                /* initialize interpolation from current cell to first target */
+                                                move_progress = 0.0f;
+                                                if (path_nodes) {
+                                                    int idx0 = path_nodes[0];
+                                                    int idx1 = path_nodes[1];
+                                                    move_from_r = idx0 / g_map_cols; move_from_c = idx0 % g_map_cols;
+                                                    move_to_r = idx1 / g_map_cols; move_to_c = idx1 % g_map_cols;
+                                                }
+                                            } else if (path_len == 1) {
+                                                /* trivial path: already at destination */
+                                                create_text_texture(renderer, "Path is current cell");
+                                            }
                             } else {
                                 /* both set: start a new start */
                                 path_start_row = row; path_start_col = col;
@@ -714,17 +732,28 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        /* Advance movement along path and update run animation frame */
+        /* Advance movement along path with interpolation and update run animation frame */
         {
             Uint32 now = SDL_GetTicks();
-            if (moving && path_len > 0 && path_nodes && move_index < path_len) {
-                if (now - last_move_tick >= (Uint32)move_ms) {
-                    int idx = path_nodes[move_index];
-                    int nr = idx / g_map_cols, nc = idx % g_map_cols;
-                    if (player) sprite_set_position(player, nr, nc);
+            if (moving && path_len > 1 && path_nodes && move_index < path_len) {
+                if (move_ms <= 0) move_ms = 200;
+                Uint32 dt = now - last_move_tick;
+                last_move_tick = now;
+                move_progress += (float)dt / (float)move_ms;
+
+                /* complete one or more steps if progress overflowed (supports large dt) */
+                while (move_progress >= 1.0f && moving) {
+                    /* snap to target cell */
+                    if (player && move_to_r >= 0 && move_to_c >= 0) sprite_set_position(player, move_to_r, move_to_c);
+                    move_progress -= 1.0f;
                     move_index++;
-                    last_move_tick = now;
-                    if (move_index >= path_len) {
+                    if (move_index < path_len) {
+                        /* advance from/to */
+                        move_from_r = move_to_r; move_from_c = move_to_c;
+                        int idx = path_nodes[move_index];
+                        move_to_r = idx / g_map_cols; move_to_c = idx % g_map_cols;
+                    } else {
+                        /* finished path */
                         moving = 0;
                         /* clear path data */
                         int total = g_map_rows * g_map_cols;
@@ -732,23 +761,41 @@ int main(int argc, char* argv[]) {
                         path_len = 0;
                         if (in_path) memset(in_path, 0, total);
                         path_start_row = path_start_col = path_end_row = path_end_col = -1;
+                        move_from_r = move_from_c = move_to_r = move_to_c = -1;
+                        move_progress = 0.0f;
                         create_text_texture(renderer, "Movement complete");
+                        break;
                     }
                 }
+
+                /* update animation frame */
                 if (player_run_frames > 0 && now - last_anim_tick >= (Uint32)anim_frame_ms) {
                     player_run_frame = (player_run_frame + 1) % player_run_frames;
                     last_anim_tick = now;
                 }
             } else {
                 player_run_frame = 0;
+                move_progress = 0.0f;
             }
         }
 
         /* Draw sprites (player, enemy) if atlas loaded */
         if (atlas_tex) {
             if (player) {
-                int pr = player->x, pc = player->y;
-                int px, py; hex_center(pr, pc, current_radius, &px, &py);
+                /* compute rendered pixel center: interpolated when moving, otherwise snap to player's cell */
+                int render_x, render_y;
+                if (moving && move_from_r >= 0 && move_to_r >= 0) {
+                    int fx, fy, tx, ty;
+                    hex_center(move_from_r, move_from_c, current_radius, &fx, &fy);
+                    hex_center(move_to_r, move_to_c, current_radius, &tx, &ty);
+                    float t = move_progress;
+                    if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
+                    render_x = (int)(fx + (tx - fx) * t + 0.5f);
+                    render_y = (int)(fy + (ty - fy) * t + 0.5f);
+                } else {
+                    int pr = player->x, pc = player->y;
+                    hex_center(pr, pc, current_radius, &render_x, &render_y);
+                }
                 /* choose source rect: running frames when moving, otherwise idle */
                 SDL_Rect cur_src = player_src;
                 if (moving && player_run_frames > 0 && player_run_w > 0) {
@@ -766,7 +813,7 @@ int main(int argc, char* argv[]) {
                 if (scale <= 0.0) scale = 1.0;
                 int dw = (int)(cur_src.w * scale + 0.5);
                 int dh = (int)(cur_src.h * scale + 0.5);
-                SDL_Rect dst = { px - dw/2, py - dh/2, dw, dh };
+                SDL_Rect dst = { render_x - dw/2, render_y - dh/2, dw, dh };
                 SDL_RenderCopy(renderer, atlas_tex, &cur_src, &dst);
             }
             if (enemy) {

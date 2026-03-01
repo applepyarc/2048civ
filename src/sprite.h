@@ -7,8 +7,27 @@
 extern "C" {
 #endif
 
+#define MAX_EQUIP_SLOTS 5
+
+typedef enum {
+    EQUIP_WEAPON,
+    EQUIP_SHIELD,
+    EQUIP_HELMET,
+    EQUIP_ARMOR,
+    EQUIP_ACCESSORY
+} EquipType;
+
 typedef struct Equipment {
     char *name;
+    int type;
+    int hp;
+    int mp;
+    int atk;
+    int def;
+    int spd;
+    int jmp;
+    int mov;
+    int spec; /* bitfield for special properties (e.g. elemental affinity) */
 } Equipment;
 
 typedef struct Sprite {
@@ -25,7 +44,7 @@ typedef struct Sprite {
     int speed;
     int attack;
     int defense;
-    Equipment *equipment;
+    Equipment equipments[MAX_EQUIP_SLOTS];
     int x;
     int y;
 } Sprite;

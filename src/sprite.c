@@ -30,7 +30,18 @@ Sprite *sprite_create(const char *name, const char *job, const char *image, int 
     s->speed = 5;
     s->attack = 10 + (s->level - 1) * 2;
     s->defense = 5 + (s->level - 1) * 1;
-    s->equipment = NULL;
+    for (int i = 0; i < MAX_EQUIP_SLOTS; ++i) {
+        s->equipments[i].name = NULL;
+        s->equipments[i].type = 0;
+        s->equipments[i].hp = 0;
+        s->equipments[i].mp = 0;
+        s->equipments[i].atk = 0;
+        s->equipments[i].def = 0;
+        s->equipments[i].spd = 0;
+        s->equipments[i].jmp = 0;
+        s->equipments[i].mov = 0;
+        s->equipments[i].spec = 0;
+    }
     s->x = 0;
     s->y = 0;
     return s;
@@ -41,9 +52,10 @@ void sprite_destroy(Sprite *s) {
     free(s->name);
     free(s->job);
     free(s->image);
-    if (s->equipment) {
-        free(s->equipment->name);
-        free(s->equipment);
+    for (int i = 0; i < 3; ++i) {
+        if (s->equipments[i].name) {
+            free(s->equipments[i].name);
+        }
     }
     free(s);
 }

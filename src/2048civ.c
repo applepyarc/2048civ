@@ -315,7 +315,7 @@ int set_info_lines(SDL_Renderer* renderer, const char** lines, int nlines) {
 /* Build and display sprite info lines in the right info panel. */
 void show_sprite_info(SDL_Renderer* renderer, Sprite* s) {
     if (!s) return;
-    char l0[128], l1[128], l2[128], l3[128], l4[128], l5[128], l6[128], l7[128], l8[128], l9[128];
+    char l0[128], l1[128], l2[128], l3[128], l4[128], l5[128], l6[128], l7[128], l8[128], l9[256] = {0};
     snprintf(l0, sizeof(l0), "Name: %s", s->name ? s->name : "");
     snprintf(l1, sizeof(l1), "Job: %s", s->job ? s->job : "");
     snprintf(l2, sizeof(l2), "Level: %d", s->level);
@@ -325,7 +325,10 @@ void show_sprite_info(SDL_Renderer* renderer, Sprite* s) {
     snprintf(l6, sizeof(l6), "Speed: %d  Jump: %d", s->speed, s->jump);
     snprintf(l7, sizeof(l7), "Move: %d", s->move);
     snprintf(l8, sizeof(l8), "Position: (%d,%d)", s->x, s->y);
-    snprintf(l9, sizeof(l9), "Equipment: %s", (s->equipment && s->equipment->name) ? s->equipment->name : "None");
+    for (int i = 0; i < MAX_EQUIP_SLOTS; i++) {
+        const char* eq_name = (s->equipments[i].name) ? s->equipments[i].name : "None";
+        snprintf(l9 + strlen(l9), 40, "Equip%d: %s ", i+1, eq_name);
+    }
     const char* lines[10] = { l0,l1,l2,l3,l4,l5,l6,l7,l8,l9 };
     set_info_lines(renderer, lines, 10);
 }

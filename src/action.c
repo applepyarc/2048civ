@@ -103,10 +103,10 @@ int use_item(Sprite *user, const Item *item, Sprite *target) {
 int view_equipment(const Sprite *c, char *out_buf, size_t buf_len) {
     if (!c || !out_buf || buf_len == 0) return 0;
     size_t used = 0;
-    for (int i = 0; i < 8; ++i) {
-        const char *name = c->equipment[i].name;
+    for (int i = 0; i < MAX_EQUIP_SLOTS; ++i) {
+        const char *name = c->equipments[i].name;
         if (!name) continue;
-        int res = snprintf(out_buf + used, (used < buf_len) ? (buf_len - used) : 0, "%s%s", name, (i < 7 ? ", " : ""));
+        int res = snprintf(out_buf + used, (used < buf_len) ? (buf_len - used) : 0, "%s%s", name, (i < 2 ? ", " : ""));
         if (res < 0) break;
         used += (size_t)res;
         if (used >= buf_len) { used = buf_len - 1; break; }

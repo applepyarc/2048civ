@@ -273,6 +273,68 @@ void draw_hex_terrain(SDL_Renderer* renderer, int cx, int cy, int radius, Terrai
     SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);
 }
 
+/* Create and set a multi-line info texture from an array of lines. */
+int set_info_lines(SDL_Renderer* renderer, const char** lines, int nlines) {
+    if (!g_font || nlines <= 0) return 0;
+    SDL_Surface** line_surfs = malloc(sizeof(SDL_Surface*) * nlines);
+    if (!line_surfs) return 0;
+    int max_w = 0; int total_h = 0; int spacing = 4;
+    for (int i = 0; i < nlines; ++i) {
+        SDL_Color col = {255,255,255,255};
+        line_surfs[i] = TTF_RenderUTF8_Blended(g_font, lines[i] ? lines[i] : "", col);
+        if (!line_surfs[i]) {
+            for (int j = 0; j < i; ++j) SDL_FreeSurface(line_surfs[j]);
+            free(line_surfs);
+            return 0;
+        }
+        if (line_surfs[i]->w > max_w) max_w = line_surfs[i]->w;
+        total_h += line_surfs[i]->h + (i > 0 ? spacing : 0);
+    }
+
+    SDL_Surface* dest = SDL_CreateRGBSurfaceWithFormat(0, max_w, total_h, 32, SDL_PIXELFORMAT_RGBA32);
+    if (!dest) {
+        for (int i = 0; i < nlines; ++i) SDL_FreeSurface(line_surfs[i]);
+        free(line_surfs);
+        return 0;
+    }
+    SDL_FillRect(dest, NULL, SDL_MapRGBA(dest->format, 0,0,0,0));
+
+    int y = 0;
+    for (int i = 0; i < nlines; ++i) {
+        SDL_Rect dst = {0, y, line_surfs[i]->w, line_surfs[i]->h};
+        SDL_BlitSurface(line_surfs[i], NULL, dest, &dst);
+        y += line_surfs[i]->h + spacing;
+        SDL_FreeSurface(line_surfs[i]);
+    }
+    free(line_surfs);
+
+    if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, dest);
+    if (!tex) { SDL_FreeSurface(dest); return 0; }
+    g_info_tex = tex;
+    g_info_w = dest->w; g_info_h = dest->h;
+    SDL_FreeSurface(dest);
+    return 1;
+}
+
+/* Build and display sprite info lines in the right info panel. */
+void show_sprite_info(SDL_Renderer* renderer, Sprite* s) {
+    if (!s) return;
+    char l0[128], l1[128], l2[128], l3[128], l4[128], l5[128], l6[128], l7[128], l8[128], l9[128];
+    snprintf(l0, sizeof(l0), "Name: %s", s->name ? s->name : "");
+    snprintf(l1, sizeof(l1), "Job: %s", s->job ? s->job : "");
+    snprintf(l2, sizeof(l2), "Level: %d", s->level);
+    snprintf(l3, sizeof(l3), "HP: %d / %d", s->hp, s->max_hp);
+    snprintf(l4, sizeof(l4), "MP: %d / %d", s->mp, s->max_mp);
+    snprintf(l5, sizeof(l5), "ATK: %d  DEF: %d", s->attack, s->defense);
+    snprintf(l6, sizeof(l6), "Speed: %d  Jump: %d", s->speed, s->jump);
+    snprintf(l7, sizeof(l7), "Action Points: %d", s->action_points);
+    snprintf(l8, sizeof(l8), "Position: (%d,%d)", s->x, s->y);
+    snprintf(l9, sizeof(l9), "Equipment: %s", (s->equipment && s->equipment->name) ? s->equipment->name : "None");
+    const char* lines[10] = { l0,l1,l2,l3,l4,l5,l6,l7,l8,l9 };
+    set_info_lines(renderer, lines, 10);
+}
+
 int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_VIDEO);
     if (TTF_Init() == -1) {
@@ -597,6 +659,13 @@ int main(int argc, char* argv[]) {
                         path_preview_row = path_preview_col = -1;
                         SDL_SetWindowTitle(window, "Hex Terrain Map");
                         if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
+                    }
+
+                    if (selected_row >= 0 && selected_col >= 0) {
+                        if (player && player->x == selected_row && player->y == selected_col)
+                            show_sprite_info(renderer, player);
+                        else if (enemy && enemy->x == selected_row && enemy->y == selected_col)
+                            show_sprite_info(renderer, enemy);
                     }
                 }
                 /* end dragging */

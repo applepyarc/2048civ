@@ -5,13 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DEFAULT_MAP_ROWS 100
-#define DEFAULT_MAP_COLS 100
+#define DEFAULT_MAP_ROWS 50
+#define DEFAULT_MAP_COLS 50
 #define DEFAULT_FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 #define DEFAULT_FONT_SIZE 16
 /* Window / layout defaults */
-#define DEFAULT_WINDOW_WIDTH 800
-#define DEFAULT_WINDOW_HEIGHT 600
+#define DEFAULT_WINDOW_WIDTH 1024
+#define DEFAULT_WINDOW_HEIGHT 1000
 #define DEFAULT_SPLIT_RATIO 0.8f /* main area fraction (e.g. 0.8 == 4/5) */
 /* movement defaults (milliseconds per tile) */
 #define DEFAULT_MOVE_MS 200

@@ -328,7 +328,7 @@ void show_sprite_info(SDL_Renderer* renderer, Sprite* s) {
     snprintf(l4, sizeof(l4), "MP: %d / %d", s->mp, s->max_mp);
     snprintf(l5, sizeof(l5), "ATK: %d  DEF: %d", s->attack, s->defense);
     snprintf(l6, sizeof(l6), "Speed: %d  Jump: %d", s->speed, s->jump);
-    snprintf(l7, sizeof(l7), "Action Points: %d", s->action_points);
+    snprintf(l7, sizeof(l7), "Move: %d", s->move);
     snprintf(l8, sizeof(l8), "Position: (%d,%d)", s->x, s->y);
     snprintf(l9, sizeof(l9), "Equipment: %s", (s->equipment && s->equipment->name) ? s->equipment->name : "None");
     const char* lines[10] = { l0,l1,l2,l3,l4,l5,l6,l7,l8,l9 };
@@ -462,7 +462,7 @@ int main(int argc, char* argv[]) {
         player->attack = 5 + rand() % (40 - 5 + 1);
         player->defense = rand() % 31;
         player->speed = 1 + rand() % 10;
-        player->action_points = 1 + rand() % 3;
+        player->move = 1 + rand() % 3;
         player->jump = 1 + rand() % 3;
         int pr = rand() % g_map_rows; int pc = rand() % g_map_cols;
         sprite_set_position(player, pr, pc);
@@ -479,7 +479,7 @@ int main(int argc, char* argv[]) {
         enemy->attack = 4 + rand() % (30 - 4 + 1);
         enemy->defense = rand() % 21;
         enemy->speed = 1 + rand() % 8;
-        enemy->action_points = 1 + rand() % 2;
+        enemy->move = 1 + rand() % 2;
         enemy->jump = 1 + rand() % 2;
         int er = rand() % g_map_rows; int ec = rand() % g_map_cols;
         sprite_set_position(enemy, er, ec);

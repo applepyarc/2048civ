@@ -24,7 +24,7 @@ Sprite *sprite_create(const char *name, const char *job, const char *image, int 
     s->hp = s->max_hp;
     s->max_mp = 30 + (s->level - 1) * 5;
     s->mp = s->max_mp;
-    s->action_points = 2;
+    s->move = 2;
     s->jump = 1;
     s->speed = 5;
     s->attack = 10 + (s->level - 1) * 2;

@@ -16,7 +16,7 @@ typedef struct Sprite {
     int hp;
     int max_mp;
     int mp;
-    int action_points;
+    int move;
     int jump;
     int speed;
     int attack;

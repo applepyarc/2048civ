@@ -1,9 +1,9 @@
-#include "action.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 #include "sprite.h"
+#include "action.h"
 
 typedef struct Skill {
     char *name;

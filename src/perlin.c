@@ -1,8 +1,9 @@
 /* perlin.c - simple 2D Perlin-like gradient noise and octave (fractal) wrapper */
-#include "perlin.h"
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+
+#include "perlin.h"
 
 static int perm_table[512];
 static PerlinParams g_params;

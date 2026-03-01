@@ -1,5 +1,5 @@
-#ifndef SRC_ACTION_H
-#define SRC_ACTION_H
+#ifndef ACTION_H
+#define ACTION_H
 
 #include <stddef.h>
 
@@ -33,4 +33,4 @@ int view_equipment(const Sprite *c, char *out_buf, size_t buf_len);
 }
 #endif
 
-#endif /* SRC_ACTION_H */
+#endif /* ACTION_H */

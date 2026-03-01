@@ -1,9 +1,10 @@
 /* config.c - runtime configuration for 2048civ
  * Supports simple environment-variable overrides.
  */
-#include "config.h"
 #include <stdlib.h>
 #include <string.h>
+
+#include "config.h"
 
 #define DEFAULT_MAP_ROWS 50
 #define DEFAULT_MAP_COLS 50

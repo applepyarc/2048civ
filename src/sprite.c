@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
 #include "sprite.h"
 
 static char *safe_strdup(const char *s) {

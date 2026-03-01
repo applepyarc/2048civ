@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct Equipment {
     char *name;
 } Equipment;
@@ -52,5 +56,9 @@ void sprite_set_mp(Sprite *s, int mp);
 int sprite_move(Sprite *s, int dx, int dy);
 int sprite_attack(Sprite *attacker, Sprite *defender);
 int sprite_use_item(Sprite *s, const char *item_id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* SPRITE_H */

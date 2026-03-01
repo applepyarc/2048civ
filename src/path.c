@@ -1,8 +1,9 @@
-#include "path.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+
+#include "path.h"
 
 /* Access map data from main program */
 extern int g_map_rows;

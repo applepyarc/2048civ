@@ -4,6 +4,10 @@
 
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     TERRAIN_PLAINS,
     TERRAIN_HILLS,
@@ -27,5 +31,9 @@ void compute_path(int sr, int sc, int tr, int tc);
 
 /* Free any internal path buffers */
 void path_cleanup(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* PATH_H */

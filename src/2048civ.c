@@ -7,13 +7,19 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <SDL2/SDL_image.h>
 #include <math.h>
 #include <stdlib.h>
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "sprite.h"
-#include <SDL2/SDL_image.h>
+/* Terrain type and path API */
+#include "path.h"
+/* Include runtime config and runtime-sized terrain buffer */
+#include "config.h"
+#include "perlin.h"
 
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 700
@@ -31,17 +37,8 @@ const int MAX_RADIUS = 120;
 #define COORDS_SHOW_MIN_RADIUS 16
 /* pixels threshold to treat mouse press+release as a click (not a drag) */
 #define CLICK_DRAG_THRESHOLD 5
+
 /* MAP size is provided by config at runtime */
-
-/* Terrain type and path API */
-#include "path.h"
-
-// 简单地形地图（已改为运行时分配）
-
-/* Include runtime config and runtime-sized terrain buffer */
-#include "config.h"
-#include "perlin.h"
-
 int g_map_rows = 0;
 int g_map_cols = 0;
 Terrain* g_terrain_map = NULL; /* flattened [row*cols + col] */
@@ -94,8 +91,6 @@ int get_neighbors(int r, int c, int *out_r, int *out_c) {
     }
     return count;
 }
-
-
 
 // Compute map pixel bounds (including hex vertices) in world coords (no cam offset)
 void compute_map_bounds(int radius) {

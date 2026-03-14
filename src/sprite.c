@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "job.h"
 #include "sprite.h"
 
 static char *safe_strdup(const char *s) {
@@ -120,14 +121,114 @@ int sprite_move(Sprite *s, int dx, int dy) {
     return 0;
 }
 
-int sprite_attack(Sprite *attacker, Sprite *defender) {
+// 计算物理攻击伤害
+int calculate_physical_damage(Sprite *attacker, Sprite *defender) {
     if (!attacker || !defender) return 0;
-    int base = attacker->attack - defender->defense;
-    int dmg = base > 0 ? base : 1;
-    if (dmg > defender->hp) dmg = defender->hp;
-    defender->hp -= dmg;
+
+    int base_damage = attacker->attack;
+    int defense = defender->defense;
+
+    // 基础伤害计算：攻击力 - 防御力
+    int damage = base_damage - defense;
+
+    // 职业加成
+    JobType job_type = get_job_type(attacker->job);
+    switch (job_type) {
+        case JOB_WARRIOR:
+            damage += base_damage * 0.2; // 战士额外20%伤害
+            break;
+        case JOB_ROGUE:
+            // 盗贼有暴击几率
+            if (rand() % 100 < 30) { // 30%暴击几率
+                damage *= 2;
+            }
+            break;
+        case JOB_ARCHER:
+            damage += 5; // 弓箭手固定加成
+            break;
+        default:
+            break;
+    }
+
+    // 等级加成
+    damage += attacker->level * 2;
+
+    // 随机波动 (±10%)
+    int variation = damage * 0.1;
+    damage += (rand() % (2 * variation + 1)) - variation;
+
+    // 确保最小伤害为1
+    if (damage < 1) damage = 1;
+
+    return damage;
+}
+
+// 计算魔法攻击伤害
+int calculate_magic_damage(Sprite *attacker, Sprite *defender) {
+    if (!attacker || !defender) return 0;
+
+    int base_damage = attacker->attack;
+
+    // 魔法伤害基于攻击力和魔法值
+    int damage = base_damage + attacker->mp * 0.5;
+
+    // 职业加成
+    JobType job_type = get_job_type(attacker->job);
+    switch (job_type) {
+        case JOB_MAGE:
+            damage += base_damage * 0.3; // 法师额外30%魔法伤害
+            break;
+        case JOB_CLERIC:
+            // 牧师对不死系有额外伤害（这里简化处理）
+            if (defender->hp < defender->max_hp * 0.3) {
+                damage += 10; // 对低血量目标额外伤害
+            }
+            break;
+        default:
+            break;
+    }
+
+    // 等级加成
+    damage += attacker->level * 3;
+
+    // 随机波动 (±15%)
+    int variation = damage * 0.15;
+    damage += (rand() % (2 * variation + 1)) - variation;
+
+    // 确保最小伤害为1
+    if (damage < 1) damage = 1;
+
+    // 消耗魔法值
+    int mp_cost = damage / 5 + 5;
+    if (mp_cost > attacker->mp) {
+        mp_cost = attacker->mp; // 最多消耗所有魔法值
+    }
+    attacker->mp -= mp_cost;
+
+    return damage;
+}
+
+int sprite_attack(Sprite *attacker, Sprite *defender, int attack_mode) {
+    if (!attacker || !defender) return 0;
+
+    int damage = 0;
+
+    // 根据攻击模式选择伤害计算方式
+    if (attack_mode == ATTACK_MODE_PHYSICAL) {
+        damage = calculate_physical_damage(attacker, defender);
+    } else if (attack_mode == ATTACK_MODE_MAGIC) {
+        damage = calculate_magic_damage(attacker, defender);
+    } else {
+        // 默认使用物理攻击
+        damage = calculate_physical_damage(attacker, defender);
+    }
+
+    // 应用伤害
+    if (damage > defender->hp) damage = defender->hp;
+    defender->hp -= damage;
     if (defender->hp < 0) defender->hp = 0;
-    return dmg;
+
+    return damage;
 }
 
 int sprite_use_item(Sprite *s, const char *item_id) {

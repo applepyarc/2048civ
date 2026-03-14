@@ -73,7 +73,7 @@ void sprite_set_mp(Sprite *s, int mp);
 
 /* Actions */
 int sprite_move(Sprite *s, int dx, int dy);
-int sprite_attack(Sprite *attacker, Sprite *defender);
+int sprite_attack(Sprite *attacker, Sprite *defender, int attack_mode);
 int sprite_use_item(Sprite *s, const char *item_id);
 
 #ifdef __cplusplus

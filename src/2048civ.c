@@ -20,6 +20,8 @@
 /* Include runtime config and runtime-sized terrain buffer */
 #include "config.h"
 #include "perlin.h"
+#include "job.h"
+#include "hex_utils.h"
 
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 700
@@ -93,6 +95,11 @@ const char* menu_options[MENU_OPTION_COUNT] = {
     "Equipment",
     "Wait"
 };
+
+int attack_mode = ATTACK_MODE_NONE; // 当前攻击模式
+int attack_target_row = -1, attack_target_col = -1; // 攻击目标位置
+int attack_range = 1; // 默认攻击范围
+
 
 void compute_hex_points(int cx, int cy, int radius, SDL_Point* pts);
 
@@ -644,6 +651,50 @@ int main(int argc, char* argv[]) {
                             Terrain t = TERRAIN_AT(row,col);
                             const char* names[] = {"Plains","Hills","Forest","Desert","Water","Mountain"};
                             char info[256];
+                            if (attack_mode != ATTACK_MODE_NONE) {
+                                // 攻击模式：选择攻击目标
+                                if (enemy && enemy->x == row && enemy->y == col) {
+                                    // 计算攻击距离
+                                    int distance = hex_distance_cells(player->x, player->y, row, col);
+
+                                    if (distance <= attack_range) {
+                                        // 执行攻击
+                                        int damage = sprite_attack(player, enemy, attack_mode);
+
+                                        // 显示攻击结果
+                                        char attack_info[256];
+                                        const char* attack_type = (attack_mode == ATTACK_MODE_PHYSICAL) ? "Physical" : "Magic";
+                                        snprintf(attack_info, sizeof(attack_info),
+                                                "%s vs %s\n%d %s damage\n%sHP: %d/%d\n",
+                                                player->name, enemy->name, damage, attack_type,
+                                                enemy->name, enemy->hp, enemy->max_hp);
+
+                                        // 检查是否击败敌人
+                                        if (enemy->hp <= 0) {
+                                            strncat(attack_info, "\n敌人被击败！", sizeof(attack_info) - strlen(attack_info) - 1);
+                                        }
+
+                                        create_text_texture(renderer, attack_info);
+
+                                        // 退出攻击模式
+                                        attack_mode = ATTACK_MODE_NONE;
+                                        found = 1;
+                                        break;
+                                    } else {
+                                        snprintf(info, sizeof(info), "目标超出攻击范围！距离: %d, 范围: %d",
+                                                distance, attack_range);
+                                        create_text_texture(renderer, info);
+                                        found = 1;
+                                        break;
+                                    }
+                                } else {
+                                    snprintf(info, sizeof(info), "请选择有效的攻击目标（敌人）");
+                                    create_text_texture(renderer, info);
+                                    found = 1;
+                                    break;
+                                }
+                            }
+
                             if (path_start_row == -1) {
                                 /* set start */
                                 /* only allow start if the clicked cell contains the player */
@@ -792,6 +843,10 @@ int main(int argc, char* argv[]) {
                                     case MENU_ATTACK:
                                         // 攻击模式：显示可攻击范围
                                         snprintf(info, sizeof(info), "Attack Mode: Select Target");
+                                        attack_mode = get_attack_mode(player->job);
+                                        snprintf(info, sizeof(info), "Attack Mode: Select Target (%s)",
+                                            attack_mode == ATTACK_MODE_PHYSICAL ? "Physical" : "Magic");
+                                    break;
                                         break;
                                     case MENU_ITEM:
                                         // 道具模式：显示道具列表
@@ -1012,6 +1067,22 @@ int main(int argc, char* argv[]) {
                     // 再次绘制边框以示高亮
                     SDL_RenderDrawLines(renderer, pts, 6);
                     SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);
+                }
+
+                // 攻击模式下高亮显示攻击范围内的敌人
+                if (attack_mode != ATTACK_MODE_NONE && player) {
+                    int distance = hex_distance_cells(player->x, player->y, row, col);
+                    if (enemy && enemy->x == row && enemy->y == col && distance <= attack_range) {
+                        SDL_Point pts[6];
+                        compute_hex_points(cx, cy, current_radius - 1, pts);
+                        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                        SDL_SetRenderDrawColor(renderer, 255, 50, 50, 120);
+                        fill_polygon(renderer, pts, 6);
+                        // 红色边框表示可攻击目标
+                        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 200);
+                        SDL_RenderDrawLines(renderer, pts, 6);
+                        SDL_RenderDrawLine(renderer, pts[5].x, pts[5].y, pts[0].x, pts[0].y);
+                    }
                 }
             }
         }

@@ -72,6 +72,28 @@ int cam_start_y = 0;
 // Map bounds (world coords, without cam)
 int map_min_x = 0, map_max_x = 0, map_min_y = 0, map_max_y = 0;
 
+// 玩家菜单系统
+#define MENU_OPTION_COUNT 5
+typedef enum {
+    MENU_MOVE = 0,
+    MENU_ATTACK,
+    MENU_ITEM,
+    MENU_EQUIP,
+    MENU_WAIT
+} MenuOption;
+ 
+int show_player_menu = 0; // 是否显示玩家菜单
+int menu_selected_option = 0; // 当前选中的菜单项
+int menu_x = 0, menu_y = 0; // 菜单位置
+int menu_width = 120, menu_height = 180; // 菜单尺寸
+const char* menu_options[MENU_OPTION_COUNT] = {
+    "Move",
+    "Attack",
+    "Items",
+    "Equipment",
+    "Wait"
+};
+
 void compute_hex_points(int cx, int cy, int radius, SDL_Point* pts);
 
 static inline int idx_of(int r, int c) { return r * g_map_cols + c; }
@@ -310,6 +332,61 @@ int set_info_lines(SDL_Renderer* renderer, const char** lines, int nlines) {
     g_info_w = dest->w; g_info_h = dest->h;
     SDL_FreeSurface(dest);
     return 1;
+}
+
+// 渲染玩家菜单
+void render_player_menu(SDL_Renderer* renderer) {
+    if (!show_player_menu) return;
+    
+    // 绘制菜单背景
+    SDL_Rect menu_rect = {menu_x, menu_y, menu_width, menu_height};
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 40, 40, 40, 220);
+    SDL_RenderFillRect(renderer, &menu_rect);
+    
+    // 绘制菜单边框
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+    SDL_RenderDrawRect(renderer, &menu_rect);
+    
+    // 绘制菜单选项
+    int option_height = menu_height / MENU_OPTION_COUNT;
+    for (int i = 0; i < MENU_OPTION_COUNT; i++) {
+        SDL_Rect option_rect = {menu_x, menu_y + i * option_height, menu_width, option_height};
+        
+        // 高亮选中的选项
+        if (i == menu_selected_option) {
+            SDL_SetRenderDrawColor(renderer, 80, 80, 200, 180);
+            SDL_RenderFillRect(renderer, &option_rect);
+        }
+        
+        // 绘制选项文本
+        if (g_font) {
+            SDL_Color text_color = {255, 255, 255, 255};
+            SDL_Surface* text_surface = TTF_RenderUTF8_Blended(g_font, menu_options[i], text_color);
+            if (text_surface) {
+                SDL_Texture* text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+                if (text_texture) {
+                    SDL_Rect text_rect = {
+                        menu_x + 10,
+                        menu_y + i * option_height + (option_height - text_surface->h) / 2,
+                        text_surface->w,
+                        text_surface->h
+                    };
+                    SDL_RenderCopy(renderer, text_texture, NULL, &text_rect);
+                    SDL_DestroyTexture(text_texture);
+                }
+                SDL_FreeSurface(text_surface);
+            }
+        }
+        
+        // 绘制选项分隔线
+        if (i < MENU_OPTION_COUNT - 1) {
+            SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+            SDL_RenderDrawLine(renderer, 
+                menu_x, menu_y + (i+1) * option_height,
+                menu_x + menu_width, menu_y + (i+1) * option_height);
+        }
+    }
 }
 
 /* Build and display sprite info lines in the right info panel. */
@@ -561,6 +638,27 @@ int main(int argc, char* argv[]) {
                                     create_text_texture(renderer, info);
                                     found = 1; break;
                                 }
+
+                                // 点击玩家角色时显示菜单
+                                if (player && player->x == row && player->y == col) {
+                                    show_player_menu = 1;
+                                    menu_selected_option = 0;
+                                    // 设置菜单位置在玩家角色附近
+                                    int cx, cy;
+                                    hex_center(row, col, current_radius, &cx, &cy);
+                                    menu_x = cx + current_radius;
+                                    menu_y = cy;
+                                    // 确保菜单不会超出窗口边界
+                                    if (menu_x + menu_width > g_main_width) {
+                                        menu_x = cx - menu_width - current_radius;
+                                    }
+                                    if (menu_y + menu_height > g_window_height) {
+                                        menu_y = g_window_height - menu_height - 10;
+                                    }
+                                    snprintf(info, sizeof(info), "玩家菜单已打开");
+                                    found = 1; break;
+                                }
+
                                 path_start_row = row; path_start_col = col;
                                 /* mark selection for highlighting */
                                 selected_row = row; selected_col = col;
@@ -659,7 +757,50 @@ int main(int argc, char* argv[]) {
                         if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
                     }
 
-                    if (selected_row >= 0 && selected_col >= 0) {
+                    // 检查是否点击了菜单
+                    if (show_player_menu) {
+                        char info[256];
+                        int option_height = menu_height / MENU_OPTION_COUNT;
+                        for (int i = 0; i < MENU_OPTION_COUNT; i++) {
+                            SDL_Rect option_rect = {menu_x, menu_y + i * option_height, menu_width, option_height};
+                            if (mx >= option_rect.x && mx <= option_rect.x + option_rect.w &&
+                                my >= option_rect.y && my <= option_rect.y + option_rect.h) {
+                                // 处理菜单选项点击
+                                switch (i) {
+                                    case MENU_MOVE:
+                                        // 移动模式：设置路径起点
+                                        path_start_row = player->x;
+                                        path_start_col = player->y;
+                                        selected_row = player->x;
+                                        selected_col = player->y;
+                                        snprintf(info, sizeof(info), "Move Mode: Select Target Position");
+                                        break;
+                                    case MENU_ATTACK:
+                                        // 攻击模式：显示可攻击范围
+                                        snprintf(info, sizeof(info), "Attack Mode: Select Target");
+                                        break;
+                                    case MENU_ITEM:
+                                        // 道具模式：显示道具列表
+                                        snprintf(info, sizeof(info), "Item Mode: Select Item to Use");
+                                        break;
+                                    case MENU_EQUIP:
+                                        // 装备模式：显示装备界面
+                                        snprintf(info, sizeof(info), "Equipment Mode: Manage Equipment");
+                                        break;
+                                    case MENU_WAIT:
+                                        // 待机：结束当前回合
+                                        snprintf(info, sizeof(info), "Wait Mode: End Current Turn");
+                                        break;
+                                }
+                                show_player_menu = 0; // 关闭菜单
+                                create_text_texture(renderer, info);
+                                found = 1;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!found && selected_row >= 0 && selected_col >= 0) {
                         if (player && player->x == selected_row && player->y == selected_col)
                             show_sprite_info(renderer, player);
                         else if (enemy && enemy->x == selected_row && enemy->y == selected_col)
@@ -738,16 +879,59 @@ int main(int argc, char* argv[]) {
                 }
             }
             else if (event.type == SDL_KEYDOWN) {
-                if (event.key.keysym.sym == SDLK_n) {
-                    highlight_neighbors_enabled = !highlight_neighbors_enabled;
-                    char info[128];
-                    snprintf(info, sizeof(info), "Highlight neighbors: %s", highlight_neighbors_enabled ? "ON" : "OFF");
-                    create_text_texture(renderer, info);
-                } else if (event.key.keysym.sym == SDLK_c) {
-                    show_cell_coords_enabled = !show_cell_coords_enabled;
-                    char info[128];
-                    snprintf(info, sizeof(info), "Show cell coords: %s", show_cell_coords_enabled ? "ON" : "OFF");
-                    create_text_texture(renderer, info);
+                if (show_player_menu) {
+                    // 菜单导航
+                    switch (event.key.keysym.sym) {
+                        case SDLK_UP:
+                            menu_selected_option = (menu_selected_option - 1 + MENU_OPTION_COUNT) % MENU_OPTION_COUNT;
+                            break;
+                        case SDLK_DOWN:
+                            menu_selected_option = (menu_selected_option + 1) % MENU_OPTION_COUNT;
+                            break;
+                        case SDLK_RETURN:
+                        case SDLK_SPACE:
+                            // 执行选中的菜单项
+                            char info[256];
+                            switch (menu_selected_option) {
+                                case MENU_MOVE:
+                                    path_start_row = player->x;
+                                    path_start_col = player->y;
+                                    selected_row = player->x;
+                                    selected_col = player->y;
+                                    snprintf(info, sizeof(info), "移动模式：选择目标位置");
+                                    break;
+                                case MENU_ATTACK:
+                                    snprintf(info, sizeof(info), "攻击模式：选择攻击目标");
+                                    break;
+                                case MENU_ITEM:
+                                    snprintf(info, sizeof(info), "道具模式：选择要使用的道具");
+                                    break;
+                                case MENU_EQUIP:
+                                    snprintf(info, sizeof(info), "装备模式：管理装备");
+                                    break;
+                                case MENU_WAIT:
+                                    snprintf(info, sizeof(info), "待机：结束当前行动");
+                                    break;
+                            }
+                            show_player_menu = 0;
+                            create_text_texture(renderer, info);
+                            break;
+                        case SDLK_ESCAPE:
+                            show_player_menu = 0; // 按ESC关闭菜单
+                            break;
+                    }
+                } else {
+                    if (event.key.keysym.sym == SDLK_n) {
+                        highlight_neighbors_enabled = !highlight_neighbors_enabled;
+                        char info[128];
+                        snprintf(info, sizeof(info), "Highlight neighbors: %s", highlight_neighbors_enabled ? "ON" : "OFF");
+                        create_text_texture(renderer, info);
+                    } else if (event.key.keysym.sym == SDLK_c) {
+                        show_cell_coords_enabled = !show_cell_coords_enabled;
+                        char info[128];
+                        snprintf(info, sizeof(info), "Show cell coords: %s", show_cell_coords_enabled ? "ON" : "OFF");
+                        create_text_texture(renderer, info);
+                    }
                 }
             }
         }
@@ -947,6 +1131,9 @@ int main(int argc, char* argv[]) {
 
         /* restore full-window viewport for UI/info panel */
         SDL_RenderSetViewport(renderer, NULL);
+
+        // 渲染玩家菜单（在信息面板之前渲染）
+        render_player_menu(renderer);
 
         // 绘制信息纹理（信息面板，右侧）
         if (g_info_tex) {

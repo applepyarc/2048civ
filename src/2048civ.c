@@ -87,6 +87,7 @@ typedef enum {
 int show_player_menu = 0; // 是否显示玩家菜单
 int menu_selected_option = 0; // 当前选中的菜单项
 int menu_x = 0, menu_y = 0; // 菜单位置
+int menu_clicked = 0; // 是否点击了菜单
 int menu_width = 120, menu_height = 180; // 菜单尺寸
 const char* menu_options[MENU_OPTION_COUNT] = {
     "Move",
@@ -718,6 +719,18 @@ int main(int argc, char* argv[]) {
             else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
                 int mx = event.button.x;
                 int my = event.button.y;
+
+                // 如果菜单显示但点击了菜单外部区域，关闭菜单
+                if (!menu_clicked) {
+                    // 检查是否点击了菜单外部区域
+                    SDL_Rect menu_rect = {menu_x, menu_y, menu_width, menu_height};
+                    if (!(mx >= menu_rect.x && mx <= menu_rect.x + menu_rect.w &&
+                            my >= menu_rect.y && my <= menu_rect.y + menu_rect.h)) {
+                        // 点击了菜单外部区域，关闭菜单
+                        show_player_menu = 0;
+                    }
+                }
+
                 int dx = mx - drag_start_x; if (dx < 0) dx = -dx;
                 int dy = my - drag_start_y; if (dy < 0) dy = -dy;
                 int is_click = (dx <= CLICK_DRAG_THRESHOLD && dy <= CLICK_DRAG_THRESHOLD);
@@ -922,8 +935,11 @@ int main(int argc, char* argv[]) {
 
                     // 检查是否点击了菜单
                     if (show_player_menu) {
+                        menu_clicked = 0;
                         char info[256];
                         int option_height = menu_height / MENU_OPTION_COUNT;
+
+                        // 检查是否点击了菜单项
                         for (int i = 0; i < MENU_OPTION_COUNT; i++) {
                             SDL_Rect option_rect = {menu_x, menu_y + i * option_height, menu_width, option_height};
                             if (mx >= option_rect.x && mx <= option_rect.x + option_rect.w &&
@@ -940,11 +956,9 @@ int main(int argc, char* argv[]) {
                                         break;
                                     case MENU_ATTACK:
                                         // 攻击模式：显示可攻击范围
-                                        snprintf(info, sizeof(info), "Attack Mode: Select Target");
                                         attack_mode = get_attack_mode(player->job);
                                         snprintf(info, sizeof(info), "Attack Mode: Select Target (%s)",
                                             attack_mode == ATTACK_MODE_PHYSICAL ? "Physical" : "Magic");
-                                    break;
                                         break;
                                     case MENU_ITEM:
                                         // 道具模式：显示道具列表
@@ -961,6 +975,7 @@ int main(int argc, char* argv[]) {
                                 }
                                 show_player_menu = 0; // 关闭菜单
                                 create_text_texture(renderer, info);
+                                menu_clicked = 1;
                                 found = 1;
                                 break;
                             }

@@ -1,6 +1,6 @@
 /* =====================================================================================
  *       Filename: 2048civ.cpp
- *    Description: 
+ *    Description:
  *        Created: 2024/03/28 20:12:42
  *         Author: archer
  * =====================================================================================*/
@@ -81,7 +81,7 @@ typedef enum {
     MENU_EQUIP,
     MENU_WAIT
 } MenuOption;
- 
+
 int show_player_menu = 0; // 是否显示玩家菜单
 int menu_selected_option = 0; // 当前选中的菜单项
 int menu_x = 0, menu_y = 0; // 菜单位置
@@ -337,28 +337,42 @@ int set_info_lines(SDL_Renderer* renderer, const char** lines, int nlines) {
 // 渲染玩家菜单
 void render_player_menu(SDL_Renderer* renderer) {
     if (!show_player_menu) return;
-    
+
+    // 获取当前鼠标位置
+    int mouse_x, mouse_y;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+
     // 绘制菜单背景
     SDL_Rect menu_rect = {menu_x, menu_y, menu_width, menu_height};
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 220);
     SDL_RenderFillRect(renderer, &menu_rect);
-    
+
     // 绘制菜单边框
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
     SDL_RenderDrawRect(renderer, &menu_rect);
-    
+
     // 绘制菜单选项
     int option_height = menu_height / MENU_OPTION_COUNT;
+    int hovered_option = -1; // 鼠标悬停的选项
+
     for (int i = 0; i < MENU_OPTION_COUNT; i++) {
         SDL_Rect option_rect = {menu_x, menu_y + i * option_height, menu_width, option_height};
-        
-        // 高亮选中的选项
-        if (i == menu_selected_option) {
+
+        // 检查鼠标是否悬停在此选项上
+        int is_hovered = (mouse_x >= option_rect.x && mouse_x <= option_rect.x + option_rect.w &&
+                         mouse_y >= option_rect.y && mouse_y <= option_rect.y + option_rect.h);
+
+        if (is_hovered) {
+            hovered_option = i;
+        }
+
+        // 高亮选中的选项或鼠标悬停的选项
+        if (i == menu_selected_option || is_hovered) {
             SDL_SetRenderDrawColor(renderer, 80, 80, 200, 180);
             SDL_RenderFillRect(renderer, &option_rect);
         }
-        
+
         // 绘制选项文本
         if (g_font) {
             SDL_Color text_color = {255, 255, 255, 255};
@@ -378,11 +392,11 @@ void render_player_menu(SDL_Renderer* renderer) {
                 SDL_FreeSurface(text_surface);
             }
         }
-        
+
         // 绘制选项分隔线
         if (i < MENU_OPTION_COUNT - 1) {
             SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
-            SDL_RenderDrawLine(renderer, 
+            SDL_RenderDrawLine(renderer,
                 menu_x, menu_y + (i+1) * option_height,
                 menu_x + menu_width, menu_y + (i+1) * option_height);
         }
@@ -799,7 +813,7 @@ int main(int argc, char* argv[]) {
                             }
                         }
                     }
-                    
+
                     if (!found && selected_row >= 0 && selected_col >= 0) {
                         if (player && player->x == selected_row && player->y == selected_col)
                             show_sprite_info(renderer, player);
@@ -843,17 +857,36 @@ int main(int argc, char* argv[]) {
                     /* only hover test when cursor is over main map area */
                     if (mx < g_main_width) {
                         int found = 0;
-                        for (int row = 0; row < g_map_rows && !found; row++) {
-                            for (int col = 0; col < g_map_cols; col++) {
-                                int cx, cy; SDL_Point pts[6];
-                                hex_center(row, col, current_radius, &cx, &cy);
-                                compute_hex_points(cx, cy, current_radius-1, pts);
-                                if (point_in_polygon(pts, 6, mx, my)) {
-                                    hover_row = row; hover_col = col; found = 1; break;
+
+                        // 首先检查鼠标是否在菜单上
+                        if (show_player_menu) {
+                            int option_height = menu_height / MENU_OPTION_COUNT;
+                            for (int i = 0; i < MENU_OPTION_COUNT; i++) {
+                                SDL_Rect option_rect = {menu_x, menu_y + i * option_height, menu_width, option_height};
+                                if (mx >= option_rect.x && mx <= option_rect.x + option_rect.w &&
+                                    my >= option_rect.y && my <= option_rect.y + option_rect.h) {
+                                    // 鼠标在菜单上，更新选中项
+                                    menu_selected_option = i;
+                                    found = 1;
+                                    break;
                                 }
                             }
                         }
-                        if (!found) { hover_row = hover_col = -1; }
+
+                        // 如果不在菜单上，检查地图单元格
+                        if (!found) {
+                            for (int row = 0; row < g_map_rows && !found; row++) {
+                                for (int col = 0; col < g_map_cols; col++) {
+                                    int cx, cy; SDL_Point pts[6];
+                                    hex_center(row, col, current_radius, &cx, &cy);
+                                    compute_hex_points(cx, cy, current_radius-1, pts);
+                                    if (point_in_polygon(pts, 6, mx, my)) {
+                                        hover_row = row; hover_col = col; found = 1; break;
+                                    }
+                                }
+                            }
+                            if (!found) { hover_row = hover_col = -1; }
+                        }
                     } else {
                         hover_row = hover_col = -1;
                     }

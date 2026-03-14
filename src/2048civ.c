@@ -251,19 +251,117 @@ int point_in_polygon(SDL_Point* pts, int n, int x, int y) {
     return inside;
 }
 
+// 计算右侧信息面板的可用宽度
+int get_info_panel_width() {
+    return g_window_width - g_main_width - 20; // 减去边距
+}
 
+// 将文本按指定宽度自动换行
+char* wrap_text(const char* text, int max_width) {
+    if (!text || !g_font) return NULL;
 
-// Create texture from text (frees previous texture if non-NULL)
+    char* result = malloc(strlen(text) * 2 + 1); // 预留足够空间
+    if (!result) return NULL;
+
+    char* current_pos = result;
+    const char* start = text;
+    const char* end = text;
+
+    while (*end) {
+        // 找到下一个换行符或字符串结束
+        const char* line_end = strchr(end, '\n');
+        if (!line_end) line_end = text + strlen(text);
+
+        // 处理这一行
+        const char* line_start = end;
+        const char* word_start = line_start;
+        const char* word_end = line_start;
+
+        while (word_start < line_end) {
+            // 找到下一个单词边界
+            while (*word_end && *word_end != ' ' && *word_end != '\t' && word_end < line_end) {
+                word_end++;
+            }
+
+            // 计算当前行的宽度
+            char temp_line[256];
+            int line_len = word_end - line_start;
+            if (line_len >= sizeof(temp_line)) line_len = sizeof(temp_line) - 1;
+            strncpy(temp_line, line_start, line_len);
+            temp_line[line_len] = '\0';
+
+            int line_width = 0;
+            TTF_SizeUTF8(g_font, temp_line, &line_width, NULL);
+
+            // 如果超出宽度，换行
+            if (line_width > max_width && word_start > line_start) {
+                // 复制当前行（不包括最后一个单词）
+                int copy_len = word_start - line_start - 1;
+                if (copy_len > 0) {
+                    strncpy(current_pos, line_start, copy_len);
+                    current_pos += copy_len;
+                }
+                *current_pos++ = '\n';
+                line_start = word_start;
+            }
+
+            // 移动到下一个单词
+            word_start = word_end;
+            while (*word_start && (*word_start == ' ' || *word_start == '\t') && word_start < line_end) {
+                word_start++;
+            }
+            word_end = word_start;
+        }
+
+        // 复制剩余的行内容
+        int copy_len = line_end - line_start;
+        if (copy_len > 0) {
+            strncpy(current_pos, line_start, copy_len);
+            current_pos += copy_len;
+        }
+
+        // 处理换行符
+        if (*line_end == '\n') {
+            *current_pos++ = '\n';
+            end = line_end + 1;
+        } else {
+            end = line_end;
+        }
+    }
+
+    *current_pos = '\0';
+    return result;
+}
+
+// Create texture from text with automatic word wrapping (frees previous texture if non-NULL)
 int create_text_texture(SDL_Renderer* renderer, const char* text) {
     if (!g_font) return 0;
     if (g_info_tex) { SDL_DestroyTexture(g_info_tex); g_info_tex = NULL; }
+
+    // 计算可用宽度
+    int max_width = get_info_panel_width();
+
+    // 自动换行
+    char* wrapped_text = wrap_text(text, max_width);
+    if (!wrapped_text) return 0;
+
     SDL_Color col = {255,255,255,255};
-    SDL_Surface* surf = TTF_RenderUTF8_Blended(g_font, text, col);
+    SDL_Surface* surf = TTF_RenderUTF8_Blended_Wrapped(g_font, wrapped_text, col, max_width);
+
+    free(wrapped_text);
+
     if (!surf) return 0;
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
     if (!tex) { SDL_FreeSurface(surf); return 0; }
     g_info_tex = tex;
-    g_info_w = surf->w; g_info_h = surf->h;
+    g_info_w = surf->w;
+    g_info_h = surf->h;
+
+    // 确保宽度不超过面板宽度
+    if (g_info_w > max_width) {
+        g_info_w = max_width;
+    }
+
     SDL_FreeSurface(surf);
     return 1;
 }
@@ -1242,11 +1340,30 @@ int main(int argc, char* argv[]) {
         // 绘制信息纹理（信息面板，右侧）
         if (g_info_tex) {
             int info_x = g_main_width + 10;
-            SDL_Rect bg = { info_x, 10, g_info_w + 10, g_info_h + 8 };
+            int panel_width = get_info_panel_width();
+
+            // 确保文本宽度不超过面板宽度
+            int display_width = g_info_w;
+            if (display_width > panel_width) {
+                display_width = panel_width;
+            }
+
+            // 确保文本高度不会超出窗口高度
+            int display_height = g_info_h;
+            int max_height = g_window_height - 20; // 留出上下边距
+            if (display_height > max_height) {
+                display_height = max_height;
+            }
+
+            SDL_Rect bg = { info_x, 10, panel_width + 10, display_height + 8 };
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 160);
             SDL_RenderFillRect(renderer, &bg);
-            SDL_Rect dst = { info_x + 5, 14, g_info_w, g_info_h };
+            // 绘制边框
+            SDL_SetRenderDrawColor(renderer, 100, 100, 100, 200);
+            SDL_RenderDrawRect(renderer, &bg);
+
+            SDL_Rect dst = { info_x + 5, 14, display_width, display_height };
             SDL_RenderCopy(renderer, g_info_tex, NULL, &dst);
         }
 

@@ -1,4 +1,5 @@
 #include <stdlib.h>
+
 /* Convert odd-q coordinates to cube coords for distance heuristic */
 static inline void oddq_to_cube(int col, int row, int *x, int *y, int *z) {
     int q = col;

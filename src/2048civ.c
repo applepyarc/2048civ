@@ -512,22 +512,64 @@ void render_player_menu(SDL_Renderer* renderer) {
 /* Build and display sprite info lines in the right info panel. */
 void show_sprite_info(SDL_Renderer* renderer, Sprite* s) {
     if (!s) return;
-    char l0[128], l1[128], l2[128], l3[128], l4[128], l5[128], l6[128], l7[128], l8[128], l9[256] = {0};
-    snprintf(l0, sizeof(l0), "Name: %s", s->name ? s->name : "");
-    snprintf(l1, sizeof(l1), "Job: %s", s->job ? s->job : "");
-    snprintf(l2, sizeof(l2), "Level: %d", s->level);
-    snprintf(l3, sizeof(l3), "HP: %d / %d", s->hp, s->max_hp);
-    snprintf(l4, sizeof(l4), "MP: %d / %d", s->mp, s->max_mp);
-    snprintf(l5, sizeof(l5), "ATK: %d  DEF: %d", s->attack, s->defense);
-    snprintf(l6, sizeof(l6), "Speed: %d  Jump: %d", s->speed, s->jump);
-    snprintf(l7, sizeof(l7), "Move: %d", s->move);
-    snprintf(l8, sizeof(l8), "Position: (%d,%d)", s->x, s->y);
+    // Create more detailed information array
+    char l0[128], l1[128], l2[128], l3[128], l4[128], l5[128], l6[128], l7[128], l8[128];
+    char l9[128], l10[128], l11[128], l12[128], l13[256] = {0};
+
+    // Basic information
+    snprintf(l0, sizeof(l0), "=== Character Info ===");
+    snprintf(l1, sizeof(l1), "Name: %s", s->name ? s->name : "Unknown");
+    snprintf(l2, sizeof(l2), "Job: %s", s->job ? s->job : "None");
+    snprintf(l3, sizeof(l3), "Level: %d", s->level);
+
+    // HP and MP with percentages
+    float hp_percent = (float)s->hp / (float)s->max_hp * 100.0f;
+    float mp_percent = (float)s->mp / (float)s->max_mp * 100.0f;
+    snprintf(l4, sizeof(l4), "HP: %d/%d (%.1f%%)", s->hp, s->max_hp, hp_percent);
+    snprintf(l5, sizeof(l5), "MP: %d/%d (%.1f%%)", s->mp, s->max_mp, mp_percent);
+
+    // Combat attributes
+    snprintf(l6, sizeof(l6), "Attack: %d", s->attack);
+    snprintf(l7, sizeof(l7), "Defense: %d", s->defense);
+    snprintf(l8, sizeof(l8), "Speed: %d", s->speed);
+
+    // Movement attributes
+    snprintf(l9, sizeof(l9), "Move: %d", s->move);
+    snprintf(l10, sizeof(l10), "Jump: %d", s->jump);
+
+    // Position information
+    snprintf(l11, sizeof(l11), "Position: (%d, %d)", s->x, s->y);
+
+    // Status information
+    const char* status = "Normal";
+    if (s->hp <= 0) status = "Dead";
+    else if (s->hp < s->max_hp * 0.3) status = "Critical";
+    else if (s->hp < s->max_hp * 0.6) status = "Injured";
+    snprintf(l12, sizeof(l12), "Status: %s", status);
+
+    // Equipment information (detailed display)
+    int has_equipment = 0;
     for (int i = 0; i < MAX_EQUIP_SLOTS; i++) {
-        const char* eq_name = (s->equipments[i].name) ? s->equipments[i].name : "None";
-        snprintf(l9 + strlen(l9), 40, "Equip%d: %s ", i+1, eq_name);
+        if (s->equipments[i].name) {
+            const char* slot_name = "";
+            switch (i) {
+                case 0: slot_name = "Weapon"; break;
+                case 1: slot_name = "Shield"; break;
+                case 2: slot_name = "Helmet"; break;
+                case 3: slot_name = "Armor"; break;
+                case 4: slot_name = "Accessory"; break;
+            }
+            snprintf(l13 + strlen(l13), sizeof(l13) - strlen(l13) - 1,
+                    "%s: %s ", slot_name, s->equipments[i].name);
+            has_equipment = 1;
+        }
     }
-    const char* lines[10] = { l0,l1,l2,l3,l4,l5,l6,l7,l8,l9 };
-    set_info_lines(renderer, lines, 10);
+    if (!has_equipment) {
+        strncpy(l13, "Equipment: None", sizeof(l13));
+    }
+
+    const char* lines[14] = { l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13 };
+    set_info_lines(renderer, lines, 14);
 }
 
 int main(int argc, char* argv[]) {

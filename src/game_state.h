@@ -1,3 +1,4 @@
+/* game_state.h */
 #ifndef GAME_STATE_H
 #define GAME_STATE_H
 
@@ -27,6 +28,7 @@ typedef enum {
 
 typedef struct {
     int visible, anchor_x, anchor_y, item_w, item_h, hovered, unit_row, unit_col;
+    int disabled[MENU_ITEM_COUNT];
 } ActionMenu;
 
 typedef struct {
@@ -34,7 +36,9 @@ typedef struct {
     int map_min_x, map_max_x, map_min_y, map_max_y;
 } CameraState;
 
-typedef struct { int start_row, start_col, end_row, end_col, preview_row, preview_col; } PathSelState;
+typedef struct {
+    int start_row, start_col, end_row, end_col, preview_row, preview_col;
+} PathSelState;
 
 typedef struct {
     int moving, move_index, move_ms, run_frame, anim_frame_ms;
@@ -48,6 +52,23 @@ typedef struct {
     SDL_Rect idle_src, run_src, role_src[4];
     int run_frames, run_w, run_h;
 } AtlasInfo;
+
+/* ---- Enemy AI sub-state ---- */
+typedef enum {
+    AI_STATE_IDLE    = 0,
+    AI_STATE_PICK,
+    AI_STATE_MOVING,
+    AI_STATE_ATTACK_PAUSE,
+    AI_STATE_INTER_PAUSE,   /* brief gap between two enemy units  ← BUG2 FIX */
+    AI_STATE_DONE,
+} EnemyAISubState;
+
+typedef struct {
+    EnemyAISubState sub_state;
+    int             current_enemy_idx;
+    int             attack_target_idx;
+    Uint32          pause_until_tick;
+} EnemyAIState;
 
 typedef enum {
     RLAYER_TERRAIN=1<<0, RLAYER_PATH=1<<1, RLAYER_SELECTION=1<<2,
@@ -64,6 +85,7 @@ typedef struct {
     int selected_row, selected_col, hover_row, hover_col;
     PathSelState path_sel;
     UnitManager units; AtlasInfo atlas; MoveState move; TurnManager turn;
+    EnemyAIState ai;
     SDL_Texture *info_tex; int info_w, info_h;
     SDL_Texture **coord_textures; int coord_tex_w, coord_tex_h;
     int highlight_neighbors_enabled, show_cell_coords_enabled;

@@ -81,3 +81,23 @@ void terrain_color(Terrain t, Uint8 *r, Uint8 *g, Uint8 *b, Uint8 *a) {
         default:               *r=200;*g=200;*b=200;*a=255; break;
     }
 }
+
+/* Convert odd-q offset (col, row) to cube coordinates.
+ * Matches the layout of hex_center() and get_neighbors():
+ * odd columns are shifted down by half a cell. */
+static void oddq_to_cube(int col, int row, int *x, int *y, int *z) {
+    *x = col;
+    *z = row - (col - (col & 1)) / 2;
+    *y = -(*x) - (*z);
+}
+
+/* Minimum step distance between two hex cells in odd-q layout. */
+int hex_distance(int r1, int c1, int r2, int c2) {
+    int x1, y1, z1, x2, y2, z2;
+    oddq_to_cube(c1, r1, &x1, &y1, &z1);
+    oddq_to_cube(c2, r2, &x2, &y2, &z2);
+    int dx = x1 - x2; if (dx < 0) dx = -dx;
+    int dy = y1 - y2; if (dy < 0) dy = -dy;
+    int dz = z1 - z2; if (dz < 0) dz = -dz;
+    return (dx + dy + dz) / 2;
+}

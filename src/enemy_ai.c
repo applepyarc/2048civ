@@ -10,22 +10,6 @@
 #include "render.h"
 #include "path.h"
 
-static void offset_to_cube(int row, int col, int *cx, int *cy, int *cz) {
-    *cx = col - (row - (row & 1)) / 2;
-    *cz = row;
-    *cy = -(*cx) - (*cz);
-}
-
-static int hex_distance(int r1, int c1, int r2, int c2) {
-    int ax, ay, az, bx, by, bz;
-    offset_to_cube(r1, c1, &ax, &ay, &az);
-    offset_to_cube(r2, c2, &bx, &by, &bz);
-    int dx = ax-bx; if(dx<0)dx=-dx;
-    int dy = ay-by; if(dy<0)dy=-dy;
-    int dz = az-bz; if(dz<0)dz=-dz;
-    return (dx+dy+dz)/2;
-}
-
 static int terrain_move_cost(Terrain t) {
     switch(t) {
         case TERRAIN_WATER:    return 99;

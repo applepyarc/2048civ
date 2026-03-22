@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include "path.h"
+#include "hex_utils.h"
 
 /* ---- Public path result buffers ---- */
 int           *path_nodes = NULL;
@@ -61,21 +62,6 @@ static HeapNode heap_pop(MinHeap *h) {
         heap_swap(&h->a[i], &h->a[s]); i = s;
     }
     return ret;
-}
-
-/* ---- Hex distance heuristic (cube coordinates) ---- */
-static void oddq_to_cube(int col, int row, int *x, int *y, int *z) {
-    int q = col;
-    int rr = row - (col - (col & 1)) / 2;
-    *x = q; *z = rr; *y = -(*x) - (*z);
-}
-
-static int hex_distance(int r1, int c1, int r2, int c2) {
-    int x1,y1,z1,x2,y2,z2;
-    oddq_to_cube(c1,r1,&x1,&y1,&z1);
-    oddq_to_cube(c2,r2,&x2,&y2,&z2);
-    int dx=abs(x1-x2), dy=abs(y1-y2), dz=abs(z1-z2);
-    return (dx+dy+dz)/2;
 }
 
 /* ---- A* ---- */

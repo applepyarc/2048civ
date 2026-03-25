@@ -41,32 +41,50 @@ typedef struct {
 } PathSelState;
 
 typedef struct {
-    int moving, move_index, move_ms, run_frame, anim_frame_ms;
-    int from_r, from_c, to_r, to_c, unit_idx;
+    int    moving, move_index, move_ms, run_frame, anim_frame_ms;
+    int    from_r, from_c, to_r, to_c;
+    float  progress;
+    int    unit_idx;
     Uint32 last_move_tick, last_anim_tick;
-    float progress;
 } MoveState;
 
+/* ---- Atlas sprite entry (one named sprite in the atlas desc) ---- */
+#define ATLAS_SPRITE_NAME_LEN 128
+#define ATLAS_MAX_SPRITES     128
+
+typedef struct {
+    char     name[ATLAS_SPRITE_NAME_LEN];
+    SDL_Rect src;        /* position in atlas (x,y = first frame; w,h = single frame) */
+    int      frames;     /* total frame count */
+} AtlasSprite;
+
+/* ---- Atlas info ---- */
 typedef struct {
     SDL_Texture *tex;
-    SDL_Rect idle_src, run_src, role_src[4];
-    int run_frames, run_w, run_h;
+    /* Player idle / run */
+    SDL_Rect     idle_src;
+    SDL_Rect     run_src;
+    int          run_frames;
+    int          run_w, run_h;
+    /* Per-role idle source rects */
+    SDL_Rect     role_src[4];
+    /* Enemy run animation (big_zombie_run_anim) */
+    SDL_Rect     enemy_run_src;
+    int          enemy_run_frames;
+    int          enemy_run_w, enemy_run_h;
+    /* Full sprite lookup table — populated by load_atlas() */
+    AtlasSprite  sprites[ATLAS_MAX_SPRITES];
+    int          sprite_count;
 } AtlasInfo;
 
-/* ---- Enemy AI sub-state ---- */
 typedef enum {
-    AI_STATE_IDLE    = 0,
-    AI_STATE_PICK,
-    AI_STATE_MOVING,
-    AI_STATE_ATTACK_PAUSE,
-    AI_STATE_INTER_PAUSE,   /* brief gap between two enemy units  ← BUG2 FIX */
-    AI_STATE_DONE,
+    AI_STATE_IDLE=0, AI_STATE_PICK, AI_STATE_MOVING,
+    AI_STATE_ATTACK_PAUSE, AI_STATE_INTER_PAUSE, AI_STATE_DONE,
 } EnemyAISubState;
 
 typedef struct {
     EnemyAISubState sub_state;
-    int             current_enemy_idx;
-    int             attack_target_idx;
+    int             current_enemy_idx, attack_target_idx;
     Uint32          pause_until_tick;
 } EnemyAIState;
 
@@ -100,4 +118,4 @@ typedef struct {
 #ifdef __cplusplus
 }
 #endif
-#endif
+#endif /* GAME_STATE_H */

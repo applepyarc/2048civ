@@ -28,7 +28,12 @@ Unit *um_add(UnitManager *um, const char *name, const char *job, int level, Unit
     sprite_set_position(s, row, col);
     Unit *u = &um->units[um->count++];
     memset(u, 0, sizeof(*u));
-    u->sprite = s; u->role = role; u->faction = faction; u->alive = 1; u->atlas_idle_idx = -1;
+    u->sprite = s;
+    u->role = role;
+    u->faction = faction;
+    u->alive = 1;
+    u->atlas_idle_idx = -1;
+    u->atlas_run_idx = -1;
     return u;
 }
 

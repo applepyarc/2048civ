@@ -13,9 +13,11 @@
 #define DEFAULT_MOVE_MS         200
 #define DEFAULT_ATLAS_IMAGE     "res/drawable/dungeon.png"
 #define DEFAULT_ATLAS_DESC      "res/drawable/dungeon"
+#define DEFAULT_ROSTER_PATH     "res/roster.cfg"
 
 static int   s_map_rows=DEFAULT_MAP_ROWS, s_map_cols=DEFAULT_MAP_COLS;
 static char  s_font_path[512]={0}, s_atlas_image[512]={0}, s_atlas_desc[512]={0};
+static char  s_roster_path[512] = {0};
 static int   s_font_size=DEFAULT_FONT_SIZE, s_window_width=DEFAULT_WINDOW_WIDTH;
 static int   s_window_height=DEFAULT_WINDOW_HEIGHT, s_move_ms=DEFAULT_MOVE_MS;
 static float s_split_ratio=DEFAULT_SPLIT_RATIO;
@@ -34,6 +36,7 @@ static void apply_env_overrides(void){
     int_env("2048CIV_MOVE_MS",&s_move_ms);
     str_env("2048CIV_ATLAS_IMAGE",s_atlas_image,sizeof(s_atlas_image));
     str_env("2048CIV_ATLAS_DESC",s_atlas_desc,sizeof(s_atlas_desc));
+    str_env("2048CIV_ROSTER_PATH", s_roster_path, sizeof(s_roster_path));
     flt_env("2048CIV_PERLIN_SCALE",&s_perlin.scale); int_env("2048CIV_PERLIN_OCTAVES",&s_perlin.octaves);
     flt_env("2048CIV_PERLIN_PERSISTENCE",&s_perlin.persistence);
     flt_env("2048CIV_PERLIN_MOISTURE_SCALE",&s_perlin.moisture_scale);
@@ -46,6 +49,7 @@ int config_init(void){
     strncpy(s_font_path,DEFAULT_FONT_PATH,sizeof(s_font_path)-1);
     strncpy(s_atlas_image,DEFAULT_ATLAS_IMAGE,sizeof(s_atlas_image)-1);
     strncpy(s_atlas_desc,DEFAULT_ATLAS_DESC,sizeof(s_atlas_desc)-1);
+    strncpy(s_roster_path, DEFAULT_ROSTER_PATH, sizeof(s_roster_path)-1);
     apply_env_overrides(); s_initialized=1; return 1;
 }
 
@@ -59,5 +63,6 @@ float        config_get_split_ratio(void)       {if(!s_initialized)config_init()
 int          config_get_move_ms(void)           {if(!s_initialized)config_init();return s_move_ms;}
 const char  *config_get_atlas_image_path(void)  {if(!s_initialized)config_init();return s_atlas_image;}
 const char  *config_get_atlas_desc_path(void)   {if(!s_initialized)config_init();return s_atlas_desc;}
+const char  *config_get_roster_path(void)       {if(!s_initialized)config_init(); return s_roster_path; }
 void         config_get_perlin_params(PerlinParams *out){if(!s_initialized)config_init();if(out)*out=s_perlin;}
 void         config_free(void)                  {s_initialized=0;}

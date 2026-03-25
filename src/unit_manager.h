@@ -6,7 +6,16 @@
 typedef enum { UNIT_ROLE_PLAYER, UNIT_ROLE_ENEMY, UNIT_ROLE_ALLY, UNIT_ROLE_NEUTRAL } UnitRole;
 typedef enum { FACTION_PLAYER=0, FACTION_ENEMY=1, FACTION_COUNT } Faction;
 
-typedef struct { Sprite *sprite; UnitRole role; Faction faction; int atlas_idle_idx,acted,alive; } Unit;
+typedef struct {
+    Sprite *sprite;
+    UnitRole role;
+    Faction faction;
+    int        atlas_idle_idx;  /* index into AtlasInfo.sprites[] for idle anim */
+    int        atlas_run_idx;   /* index into AtlasInfo.sprites[] for run anim */
+    int        acted;           /* 1 = has already acted this turn */
+    int        alive;           /* 0 = dead / removed */
+ } Unit;
+
 typedef struct { Unit *units; int count, capacity; } UnitManager;
 
 void  um_init(UnitManager *um, int capacity);

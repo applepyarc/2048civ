@@ -50,7 +50,7 @@ typedef struct {
 
 /* ---- Atlas sprite entry (one named sprite in the atlas desc) ---- */
 #define ATLAS_SPRITE_NAME_LEN 128
-#define ATLAS_MAX_SPRITES     128
+#define ATLAS_MAX_SPRITES     256
 
 typedef struct {
     char     name[ATLAS_SPRITE_NAME_LEN];

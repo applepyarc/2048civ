@@ -221,9 +221,9 @@ static int game_init(GameState *gs) {
     gs->current_radius=DEFAULT_HEX_RADIUS;
     eh_compute_map_bounds(gs); eh_clamp_camera(gs);
     render_prerender_coord_textures(gs);
+    load_atlas(gs);
     um_init(&gs->units,16);
     populate_units(gs);
-    load_atlas(gs);
     /* NOTE: load_atlas MUST come after populate_units so apply_roster_char
        can look up sprite indices in the freshly populated table. */
     gs->move.move_ms=config_get_move_ms(); gs->move.anim_frame_ms=120;

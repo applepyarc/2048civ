@@ -25,6 +25,7 @@
 #include "perlin.h"
 #include "enemy_ai.h"
 #include "roster.h"
+#include "title_screen.h"
 
 #define DEFAULT_HEX_RADIUS 40
 
@@ -186,7 +187,7 @@ static void populate_units(GameState *gs) {
     RosterChar *ec[2];
     int ne=roster_random_enemies(&roster,ec,2);
     for (int i=0;i<ne;i++){
-        char ename[64]; snprintf(ename,sizeof(ename),"%s%d",ec[i]->name,i+1);
+        char ename[ATLAS_SPRITE_NAME_LEN]; snprintf(ename,sizeof(ename),"%s%d",ec[i]->name,i+1);
         Unit *enemy=um_add(&gs->units,ename,ec[i]->job,1,
                            UNIT_ROLE_ENEMY,FACTION_ENEMY,
                            rand()%gs->map_rows,rand()%gs->map_cols);
@@ -313,9 +314,33 @@ static void game_cleanup(GameState *gs) {
 
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
+    /* 最小 SDL+TTF 初始化，仅用于标题界面 */
+    if (SDL_Init(SDL_INIT_VIDEO)!=0){fprintf(stderr,"SDL_Init: %s\n",SDL_GetError());return 1;}
+    if (TTF_Init()==-1){fprintf(stderr,"TTF_Init: %s\n",TTF_GetError());SDL_Quit();return 1;}
+    config_init();
+
+    int win_w=config_get_window_width(), win_h=config_get_window_height();
+    SDL_Window   *window   = SDL_CreateWindow("2048civ",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,win_w,win_h,0);
+    SDL_Renderer *renderer = SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED);
+    TTF_Font     *font     = TTF_OpenFont(config_get_font_path(),config_get_font_size());
+
+    /* 运行标题界面 */
+    TitleResult choice = TITLE_RESULT_QUIT;
+    if (font) choice = title_screen_run(renderer, font, win_w, win_h);
+
+    /* 销毁临时资源；game_init() 会重新创建 */
+    if (font)    TTF_CloseFont(font);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    TTF_Quit(); SDL_Quit(); config_free();
+
+    if (choice==TITLE_RESULT_QUIT) return 0;
+    if (choice!=TITLE_RESULT_START && choice!=TITLE_RESULT_CONTINUE) return 0;
+
+    /* 完整游戏循环 */
     GameState gs;
-    if(!game_init(&gs)){fprintf(stderr,"Initialization failed.\n");return 1;}
-    while(gs.running){eh_process_events(&gs);game_update(&gs);game_render(&gs);}
+    if (!game_init(&gs)){fprintf(stderr,"Initialization failed.\n");return 1;}
+    while (gs.running){eh_process_events(&gs);game_update(&gs);game_render(&gs);}
     game_cleanup(&gs);
     return 0;
 }

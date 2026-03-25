@@ -5,7 +5,7 @@
 
 #define DEFAULT_MAP_ROWS        50
 #define DEFAULT_MAP_COLS        50
-#define DEFAULT_FONT_PATH       "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+#define DEFAULT_FONT_PATH       "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf"
 #define DEFAULT_FONT_SIZE       16
 #define DEFAULT_WINDOW_WIDTH    1024
 #define DEFAULT_WINDOW_HEIGHT   1000
